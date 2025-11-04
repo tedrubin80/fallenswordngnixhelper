@@ -897,7 +897,7 @@ class FSHGuildHelper {
     `;
 
     navigationPanel.innerHTML = `
-      <button onclick="window.location='index.php?cmd=world&subcmd=relic_scout'"
+      <button onclick="window.location='index.php?cmd=guild&subcmd=scouttower'"
               class="custombutton"
               style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                      color: white;
@@ -905,7 +905,7 @@ class FSHGuildHelper {
                      border: 2px solid #fff;
                      font-weight: bold;
                      box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
-        🗼 Scout Tower Relic
+        🗼 Scout Tower
       </button>
     `;
 
@@ -928,7 +928,7 @@ class FSHGuildHelper {
       <button onclick="window.location='index.php?cmd=guild&subcmd=conflicts'" class="custombutton" style="width: 100%; margin-bottom: 5px; font-size: 10px;">
         GvG Conflicts
       </button>
-      <button onclick="window.location='index.php?cmd=world&subcmd=relic_scout'" class="custombutton" style="width: 100%; font-size: 10px;">
+      <button onclick="window.location='index.php?cmd=guild&subcmd=scouttower'" class="custombutton" style="width: 100%; font-size: 10px;">
         Scout Tower
       </button>
     `;

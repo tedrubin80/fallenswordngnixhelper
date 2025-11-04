@@ -1,0 +1,1161 @@
+// ==UserScript==
+// @name           FallenSwordHelper Game Enhancements
+// @namespace      terrasoft.gr
+// @description    Comprehensive game enhancement features for Fallen Sword - Parser, Buffs, Resources, Equipment, Guild, Quests, Combat, Navigation, Market, and QoL
+// @include        https://www.fallensword.com/*
+// @include        https://guide.fallensword.com/*
+// @include        https://fallensword.com/*
+// @include        https://*.fallensword.com/*
+// @version        1.0.0
+// @grant          none
+// @run-at         document-end
+// ==/UserScript==
+
+/**
+ * FSH Game Enhancements Module
+ * Provides comprehensive gameplay enhancements for Fallen Sword
+ */
+
+// ===================================================================
+// 1. DATA PARSER - Extracts and processes game data
+// ===================================================================
+class FSHDataParser {
+  constructor() {
+    this.gameData = null;
+    this.player = null;
+    this.realm = null;
+    this.updateInterval = 5000; // Update every 5 seconds
+  }
+
+  initialize() {
+    this.parseGameData();
+    setInterval(() => this.parseGameData(), this.updateInterval);
+  }
+
+  parseGameData() {
+    try {
+      // Parse initialGameData from global scope
+      if (typeof initialGameData !== 'undefined') {
+        this.gameData = initialGameData;
+        this.player = this.gameData.player || {};
+        this.realm = this.gameData.realm || {};
+      }
+
+      // Parse statbar data from DOM
+      this.parseStatbar();
+
+      // Trigger data update event
+      this.triggerDataUpdate();
+    } catch (error) {
+      console.error('FSH: Error parsing game data:', error);
+    }
+  }
+
+  parseStatbar() {
+    if (!this.player) this.player = {};
+
+    // Parse stamina
+    const staminaText = document.querySelector('#statbar-stamina')?.textContent;
+    if (staminaText) {
+      const match = staminaText.match(/(\d+,?\d*)/);
+      if (match) {
+        this.player.currentStamina = parseInt(match[1].replace(/,/g, ''));
+      }
+    }
+
+    // Parse gold
+    const goldText = document.querySelector('#statbar-gold')?.textContent;
+    if (goldText) {
+      const match = goldText.match(/(\d+,?\d*)/);
+      if (match) {
+        this.player.currentGold = parseInt(match[1].replace(/,/g, ''));
+      }
+    }
+
+    // Parse inventory
+    const invText = document.querySelector('#statbar-inventory')?.textContent;
+    if (invText) {
+      const match = invText.match(/(\d+)\s*\/\s*(\d+)/);
+      if (match) {
+        this.player.inventoryCurrent = parseInt(match[1]);
+        this.player.inventoryMax = parseInt(match[2]);
+      }
+    }
+  }
+
+  triggerDataUpdate() {
+    const event = new CustomEvent('fsh:dataUpdate', {
+      detail: {
+        player: this.player,
+        realm: this.realm,
+        gameData: this.gameData
+      }
+    });
+    document.dispatchEvent(event);
+  }
+
+  getPlayer() {
+    return this.player;
+  }
+
+  getRealm() {
+    return this.realm;
+  }
+
+  getGameData() {
+    return this.gameData;
+  }
+}
+
+// ===================================================================
+// 2. BUFF MANAGEMENT SYSTEM
+// ===================================================================
+class FSHBuffManager {
+  constructor(dataParser) {
+    this.dataParser = dataParser;
+    this.buffs = [];
+    this.warningThresholds = [300, 60]; // 5min, 1min in seconds
+    this.notificationShown = new Set();
+  }
+
+  initialize() {
+    this.parseBuffs();
+    setInterval(() => this.checkBuffExpiration(), 1000);
+
+    // Listen for data updates
+    document.addEventListener('fsh:dataUpdate', () => this.parseBuffs());
+  }
+
+  parseBuffs() {
+    const player = this.dataParser.getPlayer();
+    if (player && player.buffs) {
+      this.buffs = player.buffs.map(buff => ({
+        ...buff,
+        expiresAt: buff.expires * 1000, // Convert to milliseconds
+        timeRemaining: buff.expires - Math.floor(Date.now() / 1000)
+      }));
+    }
+  }
+
+  checkBuffExpiration() {
+    const now = Math.floor(Date.now() / 1000);
+
+    this.buffs.forEach(buff => {
+      const timeRemaining = buff.expires - now;
+      buff.timeRemaining = timeRemaining;
+
+      // Check warning thresholds
+      this.warningThresholds.forEach(threshold => {
+        if (timeRemaining <= threshold && timeRemaining > threshold - 2) {
+          const key = `${buff.id}-${threshold}`;
+          if (!this.notificationShown.has(key)) {
+            this.showBuffWarning(buff, timeRemaining);
+            this.notificationShown.add(key);
+          }
+        }
+      });
+
+      // Clear notification flag when buff expires
+      if (timeRemaining <= 0) {
+        this.warningThresholds.forEach(threshold => {
+          this.notificationShown.delete(`${buff.id}-${threshold}`);
+        });
+      }
+    });
+  }
+
+  showBuffWarning(buff, timeRemaining) {
+    const minutes = Math.floor(timeRemaining / 60);
+    const seconds = timeRemaining % 60;
+    const timeText = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+
+    this.showNotification(
+      `Buff Expiring: ${buff.name}`,
+      `${buff.name} (Lvl ${buff.level}) expires in ${timeText}`,
+      'warning'
+    );
+  }
+
+  showNotification(title, message, type = 'info') {
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+      color: white;
+      padding: 15px 20px;
+      border-radius: 8px;
+      z-index: 99999;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 13px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+      min-width: 250px;
+      animation: slideIn 0.3s ease-out;
+    `;
+
+    notification.innerHTML = `
+      <div style="font-weight: bold; margin-bottom: 5px;">${title}</div>
+      <div style="font-size: 12px;">${message}</div>
+    `;
+
+    document.body.appendChild(notification);
+
+    setTimeout(() => {
+      notification.style.animation = 'slideOut 0.3s ease-in';
+      setTimeout(() => notification.remove(), 300);
+    }, 5000);
+  }
+
+  getActiveBuffs() {
+    return this.buffs.filter(buff => buff.timeRemaining > 0);
+  }
+
+  getExpiringBuffs(threshold = 300) {
+    return this.buffs.filter(buff =>
+      buff.timeRemaining > 0 && buff.timeRemaining <= threshold
+    );
+  }
+
+  createBuffPanel() {
+    const panel = document.createElement('div');
+    panel.id = 'fsh-buff-panel';
+    panel.style.cssText = `
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(0, 0, 0, 0.85);
+      color: white;
+      padding: 15px;
+      border-radius: 8px;
+      z-index: 9998;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 11px;
+      max-width: 300px;
+      max-height: 400px;
+      overflow-y: auto;
+    `;
+
+    panel.innerHTML = `
+      <div style="font-weight: bold; margin-bottom: 10px; font-size: 13px;">Active Buffs</div>
+      <div id="fsh-buff-list"></div>
+    `;
+
+    document.body.appendChild(panel);
+
+    // Update buff list every second
+    setInterval(() => this.updateBuffPanel(), 1000);
+  }
+
+  updateBuffPanel() {
+    const list = document.getElementById('fsh-buff-list');
+    if (!list) return;
+
+    const activeBuffs = this.getActiveBuffs();
+
+    if (activeBuffs.length === 0) {
+      list.innerHTML = '<div style="opacity: 0.6;">No active buffs</div>';
+      return;
+    }
+
+    list.innerHTML = activeBuffs.map(buff => {
+      const minutes = Math.floor(buff.timeRemaining / 60);
+      const seconds = buff.timeRemaining % 60;
+      const timeText = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+
+      const color = buff.timeRemaining < 60 ? '#ff4444' :
+                    buff.timeRemaining < 300 ? '#ffaa00' : '#44ff44';
+
+      return `
+        <div style="margin-bottom: 8px; padding: 5px; background: rgba(255,255,255,0.1); border-radius: 4px;">
+          <div style="font-weight: bold;">${buff.name} (${buff.level})</div>
+          <div style="color: ${color}; font-size: 10px;">${timeText}</div>
+        </div>
+      `;
+    }).join('');
+  }
+}
+
+// ===================================================================
+// 3. RESOURCE TRACKING
+// ===================================================================
+class FSHResourceTracker {
+  constructor(dataParser) {
+    this.dataParser = dataParser;
+    this.history = {
+      stamina: [],
+      gold: [],
+      xp: []
+    };
+    this.trackingInterval = 60000; // Track every minute
+  }
+
+  initialize() {
+    this.startTracking();
+    this.createResourcePanel();
+  }
+
+  startTracking() {
+    setInterval(() => this.recordMetrics(), this.trackingInterval);
+    this.recordMetrics(); // Initial record
+  }
+
+  recordMetrics() {
+    const player = this.dataParser.getPlayer();
+    if (!player) return;
+
+    const timestamp = Date.now();
+
+    if (player.stamina) {
+      this.history.stamina.push({
+        time: timestamp,
+        current: player.stamina.current,
+        max: player.stamina.max
+      });
+    }
+
+    if (player.currentGold !== undefined) {
+      this.history.gold.push({
+        time: timestamp,
+        amount: player.currentGold
+      });
+    }
+
+    if (player.xp) {
+      this.history.xp.push({
+        time: timestamp,
+        current: player.xp.current,
+        next: player.xp.next
+      });
+    }
+
+    // Keep only last hour of data
+    const oneHourAgo = timestamp - 3600000;
+    Object.keys(this.history).forEach(key => {
+      this.history[key] = this.history[key].filter(entry => entry.time > oneHourAgo);
+    });
+  }
+
+  calculateStaminaToFull() {
+    const player = this.dataParser.getPlayer();
+    if (!player || !player.stamina) return null;
+
+    const staminaNeeded = player.stamina.max - player.stamina.current;
+    const gainPerHour = player.staminaGain || 0;
+
+    if (gainPerHour === 0) return { hours: Infinity, minutes: Infinity };
+
+    const hoursToFull = staminaNeeded / gainPerHour;
+    const hours = Math.floor(hoursToFull);
+    const minutes = Math.floor((hoursToFull - hours) * 60);
+
+    return { hours, minutes, totalMinutes: Math.floor(hoursToFull * 60) };
+  }
+
+  calculateGoldPerHour() {
+    if (this.history.gold.length < 2) return 0;
+
+    const recent = this.history.gold.slice(-10); // Last 10 entries
+    const first = recent[0];
+    const last = recent[recent.length - 1];
+
+    const timeDiff = (last.time - first.time) / 3600000; // in hours
+    const goldDiff = last.amount - first.amount;
+
+    return timeDiff > 0 ? Math.round(goldDiff / timeDiff) : 0;
+  }
+
+  calculateXPPerHour() {
+    if (this.history.xp.length < 2) return 0;
+
+    const recent = this.history.xp.slice(-10);
+    const first = recent[0];
+    const last = recent[recent.length - 1];
+
+    const timeDiff = (last.time - first.time) / 3600000;
+    const xpDiff = last.current - first.current;
+
+    return timeDiff > 0 ? Math.round(xpDiff / timeDiff) : 0;
+  }
+
+  createResourcePanel() {
+    const panel = document.createElement('div');
+    panel.id = 'fsh-resource-panel';
+    panel.style.cssText = `
+      position: fixed;
+      top: 100px;
+      left: 20px;
+      background: rgba(0, 0, 0, 0.85);
+      color: white;
+      padding: 15px;
+      border-radius: 8px;
+      z-index: 9998;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 11px;
+      min-width: 200px;
+    `;
+
+    panel.innerHTML = `
+      <div style="font-weight: bold; margin-bottom: 10px; font-size: 13px;">Resource Tracker</div>
+      <div id="fsh-resource-stats"></div>
+    `;
+
+    document.body.appendChild(panel);
+
+    setInterval(() => this.updateResourcePanel(), 1000);
+  }
+
+  updateResourcePanel() {
+    const stats = document.getElementById('fsh-resource-stats');
+    if (!stats) return;
+
+    const staminaInfo = this.calculateStaminaToFull();
+    const goldPerHour = this.calculateGoldPerHour();
+    const xpPerHour = this.calculateXPPerHour();
+
+    let html = '<div style="line-height: 1.8;">';
+
+    if (staminaInfo) {
+      html += `<div><strong>Time to Full:</strong> ${staminaInfo.hours}h ${staminaInfo.minutes}m</div>`;
+    }
+
+    if (goldPerHour !== 0) {
+      html += `<div><strong>Gold/Hour:</strong> ${goldPerHour.toLocaleString()}</div>`;
+    }
+
+    if (xpPerHour !== 0) {
+      html += `<div><strong>XP/Hour:</strong> ${xpPerHour.toLocaleString()}</div>`;
+    }
+
+    html += '</div>';
+
+    stats.innerHTML = html;
+  }
+}
+
+// ===================================================================
+// 4. EQUIPMENT ASSISTANT
+// ===================================================================
+class FSHEquipmentAssistant {
+  constructor(dataParser) {
+    this.dataParser = dataParser;
+    this.durabilityThreshold = 50; // Alert when below 50%
+  }
+
+  initialize() {
+    this.monitorEquipment();
+    setInterval(() => this.monitorEquipment(), 5000);
+  }
+
+  monitorEquipment() {
+    const player = this.dataParser.getPlayer();
+    if (!player || !player.equipment) return;
+
+    player.equipment.forEach(item => {
+      if (!item) return;
+
+      const durabilityPercent = (item.current / item.max) * 100;
+
+      if (durabilityPercent < this.durabilityThreshold && durabilityPercent > 0) {
+        this.showLowDurabilityWarning(item, durabilityPercent);
+      }
+    });
+  }
+
+  showLowDurabilityWarning(item, percent) {
+    // Store last warning time to avoid spam
+    const storageKey = `fsh-durability-warning-${item.itemId}`;
+    const lastWarning = localStorage.getItem(storageKey);
+    const now = Date.now();
+
+    // Only warn once every 5 minutes
+    if (lastWarning && now - parseInt(lastWarning) < 300000) {
+      return;
+    }
+
+    localStorage.setItem(storageKey, now.toString());
+
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+      position: fixed;
+      top: 80px;
+      right: 20px;
+      background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
+      color: white;
+      padding: 15px 20px;
+      border-radius: 8px;
+      z-index: 99999;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 13px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+      min-width: 250px;
+    `;
+
+    notification.innerHTML = `
+      <div style="font-weight: bold; margin-bottom: 5px;">Low Durability Warning</div>
+      <div style="font-size: 12px;">${item.name}: ${Math.round(percent)}% (${item.current}/${item.max})</div>
+      <button onclick="window.location='index.php?cmd=blacksmith'" style="margin-top: 10px; padding: 5px 10px; background: rgba(255,255,255,0.2); border: 1px solid white; color: white; cursor: pointer; border-radius: 3px;">
+        Repair Now
+      </button>
+    `;
+
+    document.body.appendChild(notification);
+
+    setTimeout(() => notification.remove(), 10000);
+  }
+}
+
+// ===================================================================
+// 5. GUILD HELPER
+// ===================================================================
+class FSHGuildHelper {
+  constructor(dataParser) {
+    this.dataParser = dataParser;
+    this.guildMembers = [];
+  }
+
+  initialize() {
+    this.parseGuildMembers();
+    this.enhanceGuildUI();
+  }
+
+  parseGuildMembers() {
+    const memberElements = document.querySelectorAll('#minibox-guild-members-list .player');
+
+    this.guildMembers = Array.from(memberElements).map(element => {
+      const nameElement = element.querySelector('.player-name');
+      const name = nameElement?.textContent.trim();
+      const playerId = nameElement?.href.match(/player_id=(\d+)/)?.[1];
+
+      return {
+        name,
+        playerId,
+        element
+      };
+    });
+  }
+
+  enhanceGuildUI() {
+    // Add "Buff All" button
+    const guildBox = document.querySelector('#minibox-guild');
+    if (!guildBox) return;
+
+    const buffAllBtn = document.createElement('button');
+    buffAllBtn.textContent = 'Quick Buff All Online';
+    buffAllBtn.className = 'custombutton';
+    buffAllBtn.style.cssText = 'margin: 10px; width: calc(100% - 20px);';
+    buffAllBtn.onclick = () => this.quickBuffAll();
+
+    guildBox.querySelector('.minibox-content')?.appendChild(buffAllBtn);
+  }
+
+  quickBuffAll() {
+    if (this.guildMembers.length === 0) {
+      alert('No online guild members found.');
+      return;
+    }
+
+    const confirmation = confirm(`Buff all ${this.guildMembers.length} online members?`);
+    if (!confirmation) return;
+
+    // Open quickbuff windows for each member
+    this.guildMembers.forEach((member, index) => {
+      if (!member.playerId) return;
+
+      setTimeout(() => {
+        window.open(
+          `index.php?cmd=quickbuff&t=${member.playerId}`,
+          `fsQuickBuff_${member.playerId}`,
+          'width=618,height=500,scrollbars=yes'
+        );
+      }, index * 500); // Stagger by 500ms
+    });
+  }
+}
+
+// ===================================================================
+// 6. QUEST & EVENT TRACKER
+// ===================================================================
+class FSHQuestTracker {
+  constructor(dataParser) {
+    this.dataParser = dataParser;
+    this.dailyQuest = null;
+    this.globalEvent = null;
+  }
+
+  initialize() {
+    this.parseDailyQuest();
+    this.parseGlobalEvent();
+    this.createTrackerPanel();
+  }
+
+  parseDailyQuest() {
+    if (typeof dailyQuestCompleted !== 'undefined') {
+      this.dailyQuest = {
+        completed: dailyQuestCompleted,
+        type: dailyQuestType,
+        subtype: dailyQuestSubtype,
+        current: dailyQuestCurrent,
+        target: dailyQuestTarget
+      };
+    }
+  }
+
+  parseGlobalEvent() {
+    const player = this.dataParser.getPlayer();
+    if (player && player.event) {
+      this.globalEvent = player.event;
+    }
+  }
+
+  createTrackerPanel() {
+    const panel = document.createElement('div');
+    panel.id = 'fsh-quest-panel';
+    panel.style.cssText = `
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      background: rgba(0, 0, 0, 0.85);
+      color: white;
+      padding: 15px;
+      border-radius: 8px;
+      z-index: 9998;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 11px;
+      min-width: 250px;
+    `;
+
+    panel.innerHTML = `
+      <div style="font-weight: bold; margin-bottom: 10px; font-size: 13px;">Quest Tracker</div>
+      <div id="fsh-quest-info"></div>
+    `;
+
+    document.body.appendChild(panel);
+
+    this.updateTrackerPanel();
+    setInterval(() => this.updateTrackerPanel(), 1000);
+  }
+
+  updateTrackerPanel() {
+    const info = document.getElementById('fsh-quest-info');
+    if (!info) return;
+
+    let html = '';
+
+    if (this.dailyQuest) {
+      const progress = this.dailyQuest.current / this.dailyQuest.target * 100;
+      html += `
+        <div style="margin-bottom: 15px;">
+          <div style="font-weight: bold; margin-bottom: 5px;">Daily Quest</div>
+          <div style="background: rgba(255,255,255,0.1); height: 20px; border-radius: 10px; overflow: hidden;">
+            <div style="background: linear-gradient(90deg, #667eea, #764ba2); height: 100%; width: ${progress}%;"></div>
+          </div>
+          <div style="margin-top: 5px; font-size: 10px;">${this.dailyQuest.current} / ${this.dailyQuest.target}</div>
+        </div>
+      `;
+    }
+
+    if (this.globalEvent) {
+      html += `
+        <div>
+          <div style="font-weight: bold; margin-bottom: 5px;">Global Event</div>
+          <div style="font-size: 10px;">${this.globalEvent.name}</div>
+          <div style="font-size: 10px; color: #44ff44;">Your Progress: ${this.globalEvent.qualify}</div>
+        </div>
+      `;
+    }
+
+    info.innerHTML = html || '<div style="opacity: 0.6;">No active quests</div>';
+  }
+}
+
+// ===================================================================
+// 7. COMBAT ENHANCEMENTS
+// ===================================================================
+class FSHCombatEnhancer {
+  constructor(dataParser) {
+    this.dataParser = dataParser;
+    this.combatLog = [];
+    this.stats = {
+      wins: 0,
+      losses: 0,
+      totalDamageDealt: 0,
+      totalDamageTaken: 0,
+      loot: []
+    };
+  }
+
+  initialize() {
+    this.loadStats();
+    this.observeCombat();
+  }
+
+  loadStats() {
+    try {
+      const stored = localStorage.getItem('fsh_combat_stats');
+      if (stored) {
+        this.stats = JSON.parse(stored);
+      }
+    } catch (error) {
+      console.error('FSH: Could not load combat stats:', error);
+    }
+  }
+
+  saveStats() {
+    try {
+      localStorage.setItem('fsh_combat_stats', JSON.stringify(this.stats));
+    } catch (error) {
+      console.error('FSH: Could not save combat stats:', error);
+    }
+  }
+
+  observeCombat() {
+    // Watch for combat dialog
+    const observer = new MutationObserver(() => {
+      const combatDialog = document.getElementById('combatDialog');
+      if (combatDialog && combatDialog.style.display !== 'none') {
+        this.parseCombatResult(combatDialog);
+      }
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+  }
+
+  parseCombatResult(dialog) {
+    // Parse combat outcome
+    const resultElement = dialog.querySelector('.result h3');
+    if (resultElement) {
+      const resultText = resultElement.textContent;
+      if (resultText.includes('Victory') || resultText.includes('Won')) {
+        this.stats.wins++;
+      } else if (resultText.includes('Defeat') || resultText.includes('Lost')) {
+        this.stats.losses++;
+      }
+      this.saveStats();
+    }
+  }
+
+  getWinRate() {
+    const total = this.stats.wins + this.stats.losses;
+    return total > 0 ? ((this.stats.wins / total) * 100).toFixed(2) : 0;
+  }
+
+  resetStats() {
+    this.stats = {
+      wins: 0,
+      losses: 0,
+      totalDamageDealt: 0,
+      totalDamageTaken: 0,
+      loot: []
+    };
+    this.saveStats();
+  }
+}
+
+// ===================================================================
+// 8. NAVIGATION TOOLS
+// ===================================================================
+class FSHNavigator {
+  constructor(dataParser) {
+    this.dataParser = dataParser;
+    this.bookmarks = [];
+  }
+
+  initialize() {
+    this.loadBookmarks();
+    this.addBookmarkButton();
+  }
+
+  loadBookmarks() {
+    try {
+      const stored = localStorage.getItem('fsh_bookmarks');
+      if (stored) {
+        this.bookmarks = JSON.parse(stored);
+      }
+    } catch (error) {
+      console.error('FSH: Could not load bookmarks:', error);
+    }
+  }
+
+  saveBookmarks() {
+    try {
+      localStorage.setItem('fsh_bookmarks', JSON.stringify(this.bookmarks));
+    } catch (error) {
+      console.error('FSH: Could not save bookmarks:', error);
+    }
+  }
+
+  addBookmarkButton() {
+    const worldName = document.getElementById('worldName');
+    if (!worldName) return;
+
+    const button = document.createElement('button');
+    button.textContent = '★ Bookmark';
+    button.className = 'awesome small blue';
+    button.style.cssText = 'margin-left: 10px;';
+    button.onclick = () => this.bookmarkCurrentLocation();
+
+    worldName.appendChild(button);
+  }
+
+  bookmarkCurrentLocation() {
+    const player = this.dataParser.getPlayer();
+    const realm = this.dataParser.getRealm();
+
+    if (!player || !realm) {
+      alert('Could not get current location');
+      return;
+    }
+
+    const name = prompt('Bookmark name:', realm.name || 'Location');
+    if (!name) return;
+
+    this.bookmarks.push({
+      name,
+      realmId: realm.id,
+      x: player.location.x,
+      y: player.location.y,
+      timestamp: Date.now()
+    });
+
+    this.saveBookmarks();
+    alert('Location bookmarked!');
+  }
+}
+
+// ===================================================================
+// 9. MARKET TOOLS
+// ===================================================================
+class FSHMarketAnalyzer {
+  constructor(dataParser) {
+    this.dataParser = dataParser;
+    this.priceHistory = {};
+  }
+
+  initialize() {
+    this.loadPriceHistory();
+    this.observeAuctionHouse();
+  }
+
+  loadPriceHistory() {
+    try {
+      const stored = localStorage.getItem('fsh_price_history');
+      if (stored) {
+        this.priceHistory = JSON.parse(stored);
+      }
+    } catch (error) {
+      console.error('FSH: Could not load price history:', error);
+    }
+  }
+
+  savePriceHistory() {
+    try {
+      localStorage.setItem('fsh_price_history', JSON.stringify(this.priceHistory));
+    } catch (error) {
+      console.error('FSH: Could not save price history:', error);
+    }
+  }
+
+  observeAuctionHouse() {
+    // Watch for auction house page
+    if (window.location.href.includes('cmd=auctionhouse')) {
+      this.enhanceAuctionHouse();
+    }
+  }
+
+  enhanceAuctionHouse() {
+    // Add price history indicators to auction items
+    const itemElements = document.querySelectorAll('.auction-item');
+
+    itemElements.forEach(element => {
+      const itemId = element.dataset.itemId;
+      const price = element.dataset.price;
+
+      if (itemId && price) {
+        this.recordPrice(itemId, parseInt(price));
+        this.addPriceIndicator(element, itemId);
+      }
+    });
+  }
+
+  recordPrice(itemId, price) {
+    if (!this.priceHistory[itemId]) {
+      this.priceHistory[itemId] = [];
+    }
+
+    this.priceHistory[itemId].push({
+      price,
+      timestamp: Date.now()
+    });
+
+    // Keep only last 100 entries per item
+    if (this.priceHistory[itemId].length > 100) {
+      this.priceHistory[itemId].shift();
+    }
+
+    this.savePriceHistory();
+  }
+
+  addPriceIndicator(element, itemId) {
+    const history = this.priceHistory[itemId];
+    if (!history || history.length < 2) return;
+
+    const avgPrice = history.reduce((sum, entry) => sum + entry.price, 0) / history.length;
+    const currentPrice = history[history.length - 1].price;
+    const percentDiff = ((currentPrice - avgPrice) / avgPrice * 100).toFixed(1);
+
+    const indicator = document.createElement('span');
+    indicator.style.cssText = `
+      display: inline-block;
+      margin-left: 10px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: bold;
+    `;
+
+    if (percentDiff < -10) {
+      indicator.style.background = '#44ff44';
+      indicator.style.color = '#000';
+      indicator.textContent = `DEAL! ${percentDiff}%`;
+    } else if (percentDiff > 10) {
+      indicator.style.background = '#ff4444';
+      indicator.style.color = '#fff';
+      indicator.textContent = `HIGH ${percentDiff}%`;
+    } else {
+      indicator.style.background = '#ffaa00';
+      indicator.style.color = '#000';
+      indicator.textContent = `AVG ${percentDiff}%`;
+    }
+
+    element.appendChild(indicator);
+  }
+}
+
+// ===================================================================
+// 10. QUALITY OF LIFE FEATURES
+// ===================================================================
+class FSHQoLFeatures {
+  constructor(dataParser) {
+    this.dataParser = dataParser;
+  }
+
+  initialize() {
+    this.addAutoRefresh();
+    this.enhanceKeyboardShortcuts();
+    this.addQuickActions();
+    this.addSoundNotifications();
+  }
+
+  addAutoRefresh() {
+    // Auto-refresh action list button
+    const actionList = document.getElementById('actionList');
+    if (!actionList) return;
+
+    const autoRefreshBtn = document.createElement('button');
+    autoRefreshBtn.textContent = 'Auto-Refresh: OFF';
+    autoRefreshBtn.className = 'custombutton';
+    autoRefreshBtn.style.cssText = 'margin: 5px;';
+
+    let autoRefresh = false;
+    let interval;
+
+    autoRefreshBtn.onclick = () => {
+      autoRefresh = !autoRefresh;
+      autoRefreshBtn.textContent = `Auto-Refresh: ${autoRefresh ? 'ON' : 'OFF'}`;
+
+      if (autoRefresh) {
+        interval = setInterval(() => {
+          const refreshBtn = document.querySelector('.actionListHeaderButton.refresh');
+          if (refreshBtn) refreshBtn.click();
+        }, 30000); // Every 30 seconds
+      } else {
+        if (interval) clearInterval(interval);
+      }
+    };
+
+    document.getElementById('actionContainerHeader')?.appendChild(autoRefreshBtn);
+  }
+
+  enhanceKeyboardShortcuts() {
+    document.addEventListener('keydown', (e) => {
+      // Ctrl+R: Repair All
+      if (e.ctrlKey && e.key === 'r') {
+        e.preventDefault();
+        window.location = 'index.php?cmd=blacksmith&subcmd=repairall';
+      }
+
+      // Ctrl+B: Open Bank
+      if (e.ctrlKey && e.key === 'b') {
+        e.preventDefault();
+        window.location = 'index.php?cmd=bank';
+      }
+
+      // Ctrl+G: Guild Store
+      if (e.ctrlKey && e.key === 'g') {
+        e.preventDefault();
+        document.querySelector('.guild_openGuildStore')?.click();
+      }
+    });
+  }
+
+  addQuickActions() {
+    const quickActionsPanel = document.createElement('div');
+    quickActionsPanel.id = 'fsh-quick-actions';
+    quickActionsPanel.style.cssText = `
+      position: fixed;
+      top: 200px;
+      right: 20px;
+      background: rgba(0, 0, 0, 0.85);
+      color: white;
+      padding: 10px;
+      border-radius: 8px;
+      z-index: 9998;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 11px;
+    `;
+
+    quickActionsPanel.innerHTML = `
+      <div style="font-weight: bold; margin-bottom: 10px; font-size: 13px;">Quick Actions</div>
+      <button onclick="window.location='index.php?cmd=blacksmith&subcmd=repairall'" class="custombutton" style="width: 100%; margin-bottom: 5px;">Repair All (Ctrl+R)</button>
+      <button onclick="window.location='index.php?cmd=bank'" class="custombutton" style="width: 100%; margin-bottom: 5px;">Bank (Ctrl+B)</button>
+      <button onclick="document.querySelector('.guild_openGuildStore')?.click()" class="custombutton" style="width: 100%;">Guild Store (Ctrl+G)</button>
+    `;
+
+    document.body.appendChild(quickActionsPanel);
+  }
+
+  addSoundNotifications() {
+    // Create audio elements for notifications
+    const sounds = {
+      buffExpiring: this.createBeep(800, 0.3, 0.1),
+      lowDurability: this.createBeep(400, 0.3, 0.2),
+      inventoryFull: this.createBeep(600, 0.3, 0.15)
+    };
+
+    window.fshSounds = sounds;
+  }
+
+  createBeep(frequency, duration, volume) {
+    return () => {
+      try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        oscillator.frequency.value = frequency;
+        oscillator.type = 'sine';
+
+        gainNode.gain.setValueAtTime(volume, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + duration);
+      } catch (error) {
+        console.error('FSH: Could not play sound:', error);
+      }
+    };
+  }
+}
+
+// ===================================================================
+// MAIN CONTROLLER - Initializes all enhancements
+// ===================================================================
+class FSHEnhancementController {
+  constructor() {
+    this.modules = {};
+    this.enabled = true;
+  }
+
+  async initialize() {
+    if (!this.enabled) return;
+
+    console.log('FSH: Initializing Game Enhancements...');
+
+    // Initialize data parser first
+    this.modules.dataParser = new FSHDataParser();
+    this.modules.dataParser.initialize();
+
+    // Wait a bit for initial data
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Initialize all other modules
+    this.modules.buffManager = new FSHBuffManager(this.modules.dataParser);
+    this.modules.buffManager.initialize();
+    this.modules.buffManager.createBuffPanel();
+
+    this.modules.resourceTracker = new FSHResourceTracker(this.modules.dataParser);
+    this.modules.resourceTracker.initialize();
+
+    this.modules.equipmentAssistant = new FSHEquipmentAssistant(this.modules.dataParser);
+    this.modules.equipmentAssistant.initialize();
+
+    this.modules.guildHelper = new FSHGuildHelper(this.modules.dataParser);
+    this.modules.guildHelper.initialize();
+
+    this.modules.questTracker = new FSHQuestTracker(this.modules.dataParser);
+    this.modules.questTracker.initialize();
+
+    this.modules.combatEnhancer = new FSHCombatEnhancer(this.modules.dataParser);
+    this.modules.combatEnhancer.initialize();
+
+    this.modules.navigator = new FSHNavigator(this.modules.dataParser);
+    this.modules.navigator.initialize();
+
+    this.modules.marketAnalyzer = new FSHMarketAnalyzer(this.modules.dataParser);
+    this.modules.marketAnalyzer.initialize();
+
+    this.modules.qolFeatures = new FSHQoLFeatures(this.modules.dataParser);
+    this.modules.qolFeatures.initialize();
+
+    console.log('FSH: All enhancements initialized successfully!');
+
+    // Make controller globally accessible for debugging
+    window.FSHEnhancements = this;
+  }
+
+  getModule(name) {
+    return this.modules[name];
+  }
+
+  disable() {
+    this.enabled = false;
+    // Remove UI elements
+    ['fsh-buff-panel', 'fsh-resource-panel', 'fsh-quest-panel', 'fsh-quick-actions'].forEach(id => {
+      document.getElementById(id)?.remove();
+    });
+  }
+
+  enable() {
+    this.enabled = true;
+    this.initialize();
+  }
+}
+
+// ===================================================================
+// AUTO-INITIALIZE
+// ===================================================================
+(function() {
+  console.log('FSH Game Enhancements: Loading...');
+
+  // Wait for page to be ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initEnhancements);
+  } else {
+    initEnhancements();
+  }
+
+  function initEnhancements() {
+    // Additional delay to ensure game has loaded
+    setTimeout(() => {
+      const controller = new FSHEnhancementController();
+      controller.initialize();
+    }, 2000);
+  }
+})();

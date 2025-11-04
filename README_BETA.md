@@ -41,6 +41,13 @@ This is the **BETA** version of FallenSwordHelper with enhanced features, improv
 - Exposes configuration and metrics to console
 - Helps identify issues during development
 
+### 7. Error Reporting System
+- One-click error reporting directly from error messages
+- Automatic error history tracking (last 10 errors)
+- Generate detailed error reports with system information
+- Copy reports to clipboard or create GitHub issues
+- Privacy-conscious - no personal data collected
+
 ## Configuration Options
 
 ### Performance Settings
@@ -83,6 +90,26 @@ Enable debug mode to:
 - Troubleshoot loading issues
 - Monitor performance metrics in real-time
 
+### Error Reporting
+When an error occurs:
+1. A "Report This Error" button appears in the error message
+2. Click it to open the error reporting dialog
+3. Optionally describe what happened and expected behavior
+4. Choose to copy the report or create a GitHub issue
+5. Reports include system info, config, metrics, and error details
+
+You can also manually report issues:
+- Click the status indicator to open settings
+- Click "Report Issue" in the Error Reporting section
+- Fill out the form and submit
+
+**What's included in reports:**
+- System information (browser, OS, screen resolution)
+- Configuration settings
+- Performance metrics
+- Recent errors with stack traces
+- No personal or game data
+
 ## Performance Metrics
 
 The beta version tracks:
@@ -103,6 +130,7 @@ The beta version tracks:
 | Status Indicator | ❌ | ✅ |
 | User Settings Persistence | ❌ | ✅ |
 | Debug Mode | ❌ | ✅ |
+| Error Reporting | ❌ | ✅ |
 
 ## Troubleshooting
 
@@ -125,6 +153,12 @@ The beta version tracks:
 3. Check for conflicts with other scripts
 4. Verify script is installed correctly
 
+### Error Reports Not Generating
+1. Ensure you have encountered or recorded an error
+2. Check browser console for error reporter issues
+3. Try clearing error history and generating new errors
+4. Verify localStorage is enabled in your browser
+
 ## Feedback and Issues
 
 This is a BETA version for testing and improvement. Please report:
@@ -142,6 +176,9 @@ Planned features:
 - Custom themes for status indicator
 - Export/import configuration
 - Advanced caching strategies
+- Anonymous telemetry (opt-in)
+- Error trend analysis and insights
+- Automated error pattern detection
 
 ## Technical Details
 
@@ -149,6 +186,7 @@ Planned features:
 The beta version uses localStorage for:
 - User configuration (persistent)
 - Performance metrics (persistent)
+- Error history (persistent, max 10 errors)
 - Module cache (temporary, with TTL)
 
 ### Network Optimization
@@ -165,6 +203,14 @@ The beta version uses localStorage for:
 - Any browser supporting ES6+ and localStorage
 
 ## Version History
+
+### 1525-beta-2
+- Added comprehensive error reporting system
+- One-click error reporting from error messages
+- Automatic error history tracking
+- GitHub issue integration
+- Report generation with full diagnostics
+- Privacy-conscious error collection
 
 ### 1525-beta-1
 - Initial beta release

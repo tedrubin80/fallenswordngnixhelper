@@ -11,7 +11,7 @@
 // @exclude        https://wiki.fallensword.com/*
 // @exclude        https://www.fallensword.com/app.php*
 // @exclude        https://www.fallensword.com/fetchdata.php*
-// @version        1525-beta-1
+// @version        1525-beta-2
 // @downloadURL    https://fallenswordhelper.github.io/fallenswordhelper/Releases/Beta/fallenswordhelper-beta.user.js
 // @grant          none
 // @run-at         document-body
@@ -151,6 +151,297 @@ class FSHMetrics {
       timeoutErrors: 0
     };
     this.saveMetrics();
+  }
+}
+
+// Error reporter for collecting and submitting bug reports
+class FSHErrorReporter {
+  constructor(config, metrics) {
+    this.config = config;
+    this.metrics = metrics;
+    this.errors = this.loadErrors();
+    this.maxStoredErrors = 10;
+  }
+
+  loadErrors() {
+    try {
+      const stored = localStorage.getItem('fsh_errors');
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (error) {
+      console.warn('FSH: Could not load error history:', error);
+    }
+    return [];
+  }
+
+  saveErrors() {
+    try {
+      // Keep only the most recent errors
+      const toSave = this.errors.slice(-this.maxStoredErrors);
+      localStorage.setItem('fsh_errors', JSON.stringify(toSave));
+    } catch (error) {
+      console.warn('FSH: Could not save error history:', error);
+    }
+  }
+
+  recordError(error, context = {}) {
+    const errorRecord = {
+      timestamp: new Date().toISOString(),
+      message: error.message,
+      stack: error.stack,
+      context: context,
+      url: window.location.href,
+      userAgent: navigator.userAgent
+    };
+
+    this.errors.push(errorRecord);
+    this.saveErrors();
+
+    if (this.config.get('debugMode')) {
+      console.log('FSH: Error recorded:', errorRecord);
+    }
+  }
+
+  getSystemInfo() {
+    const stats = this.metrics.getStats();
+    return {
+      version: '1525-beta-2',
+      timestamp: new Date().toISOString(),
+      url: window.location.href,
+      userAgent: navigator.userAgent,
+      screenResolution: `${window.screen.width}x${window.screen.height}`,
+      viewport: `${window.innerWidth}x${window.innerHeight}`,
+      language: navigator.language,
+      cookiesEnabled: navigator.cookieEnabled,
+      onLine: navigator.onLine,
+      config: {
+        maxRetries: this.config.get('maxRetries'),
+        baseDelay: this.config.get('baseDelay'),
+        timeout: this.config.get('timeout'),
+        debugMode: this.config.get('debugMode'),
+        cacheEnabled: this.config.get('cacheEnabled'),
+        adaptiveRetry: this.config.get('adaptiveRetry')
+      },
+      metrics: stats,
+      recentErrors: this.errors.slice(-5) // Last 5 errors
+    };
+  }
+
+  generateReport(additionalInfo = '') {
+    const systemInfo = this.getSystemInfo();
+
+    let report = `# FSH Beta Error Report\n\n`;
+    report += `**Generated:** ${systemInfo.timestamp}\n`;
+    report += `**Version:** ${systemInfo.version}\n\n`;
+
+    report += `## System Information\n`;
+    report += `- **Browser:** ${systemInfo.userAgent}\n`;
+    report += `- **Language:** ${systemInfo.language}\n`;
+    report += `- **Screen:** ${systemInfo.screenResolution}\n`;
+    report += `- **Viewport:** ${systemInfo.viewport}\n`;
+    report += `- **Online:** ${systemInfo.onLine}\n`;
+    report += `- **URL:** ${systemInfo.url}\n\n`;
+
+    report += `## Configuration\n`;
+    report += `- **Max Retries:** ${systemInfo.config.maxRetries}\n`;
+    report += `- **Base Delay:** ${systemInfo.config.baseDelay}ms\n`;
+    report += `- **Timeout:** ${systemInfo.config.timeout}ms\n`;
+    report += `- **Debug Mode:** ${systemInfo.config.debugMode}\n`;
+    report += `- **Cache Enabled:** ${systemInfo.config.cacheEnabled}\n`;
+    report += `- **Adaptive Retry:** ${systemInfo.config.adaptiveRetry}\n\n`;
+
+    report += `## Performance Metrics\n`;
+    report += `- **Load Attempts:** ${systemInfo.metrics.loadAttempts}\n`;
+    report += `- **Success Rate:** ${systemInfo.metrics.successRate}%\n`;
+    report += `- **Average Load Time:** ${Math.round(systemInfo.metrics.averageLoadTime)}ms\n`;
+    report += `- **Network Errors:** ${systemInfo.metrics.networkErrors}\n`;
+    report += `- **Timeout Errors:** ${systemInfo.metrics.timeoutErrors}\n\n`;
+
+    if (systemInfo.recentErrors.length > 0) {
+      report += `## Recent Errors\n`;
+      systemInfo.recentErrors.forEach((err, index) => {
+        report += `\n### Error ${index + 1}\n`;
+        report += `- **Time:** ${err.timestamp}\n`;
+        report += `- **Message:** ${err.message}\n`;
+        if (err.context && Object.keys(err.context).length > 0) {
+          report += `- **Context:** ${JSON.stringify(err.context)}\n`;
+        }
+        if (err.stack) {
+          report += `\n**Stack Trace:**\n\`\`\`\n${err.stack}\n\`\`\`\n`;
+        }
+      });
+      report += `\n`;
+    }
+
+    if (additionalInfo) {
+      report += `## Additional Information\n${additionalInfo}\n\n`;
+    }
+
+    report += `---\n`;
+    report += `*This report was automatically generated by FSH Beta Error Reporter*`;
+
+    return report;
+  }
+
+  copyToClipboard(text) {
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      return true;
+    } catch (error) {
+      console.error('FSH: Could not copy to clipboard:', error);
+      return false;
+    }
+  }
+
+  showReportDialog(error = null, context = {}) {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.8);
+      z-index: 10002;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    `;
+
+    const dialog = document.createElement('div');
+    dialog.style.cssText = `
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      max-width: 600px;
+      max-height: 80vh;
+      overflow-y: auto;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    `;
+
+    if (error) {
+      this.recordError(error, context);
+    }
+
+    dialog.innerHTML = `
+      <h2 style="margin-top: 0; color: #eb3349;">Report an Issue</h2>
+      <p style="color: #666; font-size: 13px; line-height: 1.5;">
+        Help us improve FSH Beta by reporting this issue. The report includes system information,
+        configuration, and recent errors. No personal data is collected.
+      </p>
+
+      <div style="margin: 15px 0;">
+        <label style="display: block; margin-bottom: 5px; font-weight: bold; font-size: 13px;">
+          Describe what happened (optional):
+        </label>
+        <textarea id="fsh-error-description" placeholder="What were you doing when the error occurred?"
+          style="width: 100%; height: 80px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: inherit; font-size: 12px; resize: vertical;"></textarea>
+      </div>
+
+      <div style="margin: 15px 0;">
+        <label style="display: block; margin-bottom: 5px; font-weight: bold; font-size: 13px;">
+          Expected behavior (optional):
+        </label>
+        <textarea id="fsh-error-expected" placeholder="What did you expect to happen?"
+          style="width: 100%; height: 60px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: inherit; font-size: 12px; resize: vertical;"></textarea>
+      </div>
+
+      <div id="fsh-report-status" style="margin: 10px 0; padding: 8px; border-radius: 4px; display: none; font-size: 12px;"></div>
+
+      <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+        <button id="fsh-report-cancel" style="padding: 8px 16px; background: #f5f5f5; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
+          Cancel
+        </button>
+        <button id="fsh-report-copy" style="padding: 8px 16px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
+          📋 Copy Report
+        </button>
+        <button id="fsh-report-github" style="padding: 8px 16px; background: #24292e; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
+          🐙 Open GitHub Issue
+        </button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    const showStatus = (message, type = 'info') => {
+      const statusDiv = document.getElementById('fsh-report-status');
+      const colors = {
+        success: '#d4edda',
+        error: '#f8d7da',
+        info: '#d1ecf1'
+      };
+      statusDiv.style.display = 'block';
+      statusDiv.style.background = colors[type] || colors.info;
+      statusDiv.style.color = '#333';
+      statusDiv.textContent = message;
+    };
+
+    // Cancel button
+    document.getElementById('fsh-report-cancel').addEventListener('click', () => {
+      overlay.remove();
+    });
+
+    // Copy report button
+    document.getElementById('fsh-report-copy').addEventListener('click', () => {
+      const description = document.getElementById('fsh-error-description').value;
+      const expected = document.getElementById('fsh-error-expected').value;
+
+      let additionalInfo = '';
+      if (description) additionalInfo += `**What happened:** ${description}\n\n`;
+      if (expected) additionalInfo += `**Expected behavior:** ${expected}\n\n`;
+
+      const report = this.generateReport(additionalInfo);
+
+      if (this.copyToClipboard(report)) {
+        showStatus('✓ Report copied to clipboard!', 'success');
+        setTimeout(() => overlay.remove(), 2000);
+      } else {
+        showStatus('✗ Could not copy to clipboard. Please select and copy manually.', 'error');
+      }
+    });
+
+    // GitHub issue button
+    document.getElementById('fsh-report-github').addEventListener('click', () => {
+      const description = document.getElementById('fsh-error-description').value;
+      const expected = document.getElementById('fsh-error-expected').value;
+
+      let additionalInfo = '';
+      if (description) additionalInfo += `**What happened:** ${description}\n\n`;
+      if (expected) additionalInfo += `**Expected behavior:** ${expected}\n\n`;
+
+      const report = this.generateReport(additionalInfo);
+
+      // Create GitHub issue URL
+      const title = error ? `Bug: ${error.message}` : 'Bug Report from FSH Beta';
+      const body = encodeURIComponent(report);
+      const url = `https://github.com/tedrubin80/fallenswordngnixhelper/issues/new?title=${encodeURIComponent(title)}&body=${body}`;
+
+      window.open(url, '_blank');
+      showStatus('✓ Opening GitHub issue page...', 'success');
+      setTimeout(() => overlay.remove(), 1500);
+    });
+
+    // Close on overlay click
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+      }
+    });
+  }
+
+  clearHistory() {
+    this.errors = [];
+    this.saveErrors();
   }
 }
 
@@ -323,6 +614,21 @@ class FSHConfigPanel {
         </button>
       </div>
 
+      <div style="margin-bottom: 20px; padding: 10px; background: #fff3cd; border-radius: 4px; border: 1px solid #ffc107;">
+        <h3 style="color: #856404; font-size: 14px; margin-top: 0;">Error Reporting</h3>
+        <div style="font-size: 12px; line-height: 1.6; color: #856404; margin-bottom: 10px;">
+          Encountered an issue? Help us improve FSH Beta by reporting errors.
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button id="fsh-report-error" style="padding: 6px 12px; font-size: 11px; background: #eb3349; color: white; border: none; border-radius: 4px; cursor: pointer;">
+            🐛 Report Issue
+          </button>
+          <button id="fsh-clear-errors" style="padding: 6px 12px; font-size: 11px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">
+            Clear Error History
+          </button>
+        </div>
+      </div>
+
       <div style="display: flex; gap: 10px; justify-content: flex-end;">
         <button id="fsh-reset" style="padding: 8px 16px; background: #f5f5f5; border: none; border-radius: 4px; cursor: pointer;">
           Reset to Defaults
@@ -366,6 +672,21 @@ class FSHConfigPanel {
       }
     });
 
+    // Error reporting buttons
+    document.getElementById('fsh-report-error').addEventListener('click', () => {
+      const errorReporter = new FSHErrorReporter(config, metrics);
+      overlay.remove();
+      errorReporter.showReportDialog();
+    });
+
+    document.getElementById('fsh-clear-errors').addEventListener('click', () => {
+      if (confirm('Clear all stored error history?')) {
+        const errorReporter = new FSHErrorReporter(config, metrics);
+        errorReporter.clearHistory();
+        alert('Error history cleared.');
+      }
+    });
+
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) {
         overlay.remove();
@@ -379,6 +700,7 @@ class FSHLoader {
   constructor(config) {
     this.config = config || new FSHConfig();
     this.metrics = new FSHMetrics();
+    this.errorReporter = new FSHErrorReporter(this.config, this.metrics);
     this.statusIndicator = this.config.get('showStatusIndicator') ? new FSHStatusIndicator() : null;
     this.moduleUrl = 'https://fallenswordhelper.github.io/fallenswordhelper/resources/prod/1524/calfSystem.min.js';
     this.networkQuality = 'good'; // good, fair, poor
@@ -560,6 +882,14 @@ class FSHLoader {
       this.metrics.recordFailure('final');
     }
 
+    // Record the error for reporting
+    this.errorReporter.recordError(lastError, {
+      attemptsMade: maxRetries,
+      totalTime: Date.now() - startTime,
+      moduleUrl: this.moduleUrl,
+      networkQuality: this.networkQuality
+    });
+
     if (this.statusIndicator) {
       this.statusIndicator.update('Failed to load', 'error');
     }
@@ -595,7 +925,10 @@ class FSHLoader {
         <div style="margin-top: 8px; font-size: 11px; opacity: 0.9;">
           Error: ${error.message}
         </div>
-        <div style="margin-top: 10px; display: flex; gap: 8px;">
+        <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+          <button id="fsh-error-report-btn" style="flex: 1 1 100%; padding: 6px; background: rgba(255,255,255,0.3); border: 1px solid white; color: white; cursor: pointer; border-radius: 3px; font-size: 11px; font-weight: bold;">
+            🐛 Report This Error
+          </button>
           <button onclick="location.reload()" style="flex: 1; padding: 6px; background: rgba(255,255,255,0.2); border: 1px solid white; color: white; cursor: pointer; border-radius: 3px; font-size: 11px;">
             Reload Page
           </button>
@@ -605,6 +938,18 @@ class FSHLoader {
         </div>
       `;
       document.body.appendChild(errorDiv);
+
+      // Add event listener for report button
+      const reportBtn = document.getElementById('fsh-error-report-btn');
+      if (reportBtn) {
+        reportBtn.addEventListener('click', () => {
+          errorDiv.remove();
+          this.errorReporter.showReportDialog(error, {
+            source: 'module_load_failure',
+            attemptsMade: this.config.get('maxRetries')
+          });
+        });
+      }
 
       // Auto-remove after 30 seconds
       setTimeout(() => {
@@ -702,6 +1047,7 @@ function injectScript() {
           // Inject all classes
           ${FSHConfig.toString()}
           ${FSHMetrics.toString()}
+          ${FSHErrorReporter.toString()}
           ${FSHStatusIndicator.toString()}
           ${FSHConfigPanel.toString()}
           ${FSHLoader.toString()}
@@ -717,7 +1063,7 @@ function injectScript() {
 
     script.textContent = scriptContent;
     script.setAttribute('data-fsh-injected', 'true');
-    script.setAttribute('data-fsh-version', '1525-beta-1');
+    script.setAttribute('data-fsh-version', '1525-beta-2');
 
     // Add error handling for script injection
     script.onerror = function(error) {

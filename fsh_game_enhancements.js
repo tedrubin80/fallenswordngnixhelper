@@ -506,17 +506,62 @@ class FSHEquipmentAssistant {
 }
 
 // ===================================================================
-// 5. GUILD HELPER
+// 5. GUILD HELPER - GvG, Guild Store, Scout Tower
 // ===================================================================
 class FSHGuildHelper {
   constructor(dataParser) {
     this.dataParser = dataParser;
     this.guildMembers = [];
+    this.gvgData = {
+      conflicts: [],
+      territories: [],
+      points: 0,
+      rank: 0
+    };
+    this.conflictHistory = [];
   }
 
   initialize() {
-    this.parseGuildMembers();
+    this.loadConflictHistory();
+    this.parseGuildData();
     this.enhanceGuildUI();
+    this.enhanceGuildStore();
+    this.addScoutTowerButton();
+    this.trackGvGConflicts();
+
+    // Periodic updates
+    setInterval(() => this.parseGuildData(), 10000);
+  }
+
+  loadConflictHistory() {
+    try {
+      const stored = localStorage.getItem('fsh_conflict_history');
+      if (stored) {
+        this.conflictHistory = JSON.parse(stored);
+      }
+    } catch (error) {
+      console.error('FSH: Could not load conflict history:', error);
+    }
+  }
+
+  saveConflictHistory() {
+    try {
+      // Keep last 100 conflicts
+      if (this.conflictHistory.length > 100) {
+        this.conflictHistory = this.conflictHistory.slice(-100);
+      }
+      localStorage.setItem('fsh_conflict_history', JSON.stringify(this.conflictHistory));
+    } catch (error) {
+      console.error('FSH: Could not save conflict history:', error);
+    }
+  }
+
+  parseGuildData() {
+    // Parse GvG conflict data from page
+    this.parseGvGConflicts();
+
+    // Parse guild member data
+    this.parseGuildMembers();
   }
 
   parseGuildMembers() {
@@ -535,41 +580,360 @@ class FSHGuildHelper {
     });
   }
 
-  enhanceGuildUI() {
-    // Add "Buff All" button
-    const guildBox = document.querySelector('#minibox-guild');
-    if (!guildBox) return;
-
-    const buffAllBtn = document.createElement('button');
-    buffAllBtn.textContent = 'Quick Buff All Online';
-    buffAllBtn.className = 'custombutton';
-    buffAllBtn.style.cssText = 'margin: 10px; width: calc(100% - 20px);';
-    buffAllBtn.onclick = () => this.quickBuffAll();
-
-    guildBox.querySelector('.minibox-content')?.appendChild(buffAllBtn);
-  }
-
-  quickBuffAll() {
-    if (this.guildMembers.length === 0) {
-      alert('No online guild members found.');
+  parseGvGConflicts() {
+    // Parse conflict data from the guild conflict page
+    if (!window.location.href.includes('cmd=guild') && !window.location.href.includes('cmd=conflict')) {
       return;
     }
 
-    const confirmation = confirm(`Buff all ${this.guildMembers.length} online members?`);
-    if (!confirmation) return;
+    // Try to extract conflict information from DOM
+    const conflictElements = document.querySelectorAll('.conflict-item, .gvg-conflict, [class*="conflict"]');
 
-    // Open quickbuff windows for each member
-    this.guildMembers.forEach((member, index) => {
-      if (!member.playerId) return;
+    this.gvgData.conflicts = Array.from(conflictElements).map(element => {
+      const opponentName = element.querySelector('.opponent-name, .guild-name')?.textContent.trim();
+      const pointsText = element.querySelector('.points, .score')?.textContent;
+      const statusText = element.querySelector('.status')?.textContent;
 
-      setTimeout(() => {
-        window.open(
-          `index.php?cmd=quickbuff&t=${member.playerId}`,
-          `fsQuickBuff_${member.playerId}`,
-          'width=618,height=500,scrollbars=yes'
-        );
-      }, index * 500); // Stagger by 500ms
+      return {
+        opponent: opponentName || 'Unknown',
+        points: this.parsePoints(pointsText),
+        status: statusText || 'Active',
+        timestamp: Date.now()
+      };
+    }).filter(conflict => conflict.opponent !== 'Unknown');
+
+    // Record new conflicts
+    this.gvgData.conflicts.forEach(conflict => {
+      if (!this.conflictHistory.find(c => c.opponent === conflict.opponent && c.timestamp === conflict.timestamp)) {
+        this.conflictHistory.push({...conflict});
+        this.saveConflictHistory();
+      }
     });
+  }
+
+  parsePoints(text) {
+    if (!text) return 0;
+    const match = text.match(/(\d+)/);
+    return match ? parseInt(match[1]) : 0;
+  }
+
+  trackGvGConflicts() {
+    // Create GvG tracking panel
+    const panel = document.createElement('div');
+    panel.id = 'fsh-gvg-panel';
+    panel.style.cssText = `
+      position: fixed;
+      top: 300px;
+      left: 20px;
+      background: rgba(20, 20, 20, 0.95);
+      color: white;
+      padding: 15px;
+      border-radius: 8px;
+      border: 2px solid #c41e3a;
+      z-index: 9998;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 11px;
+      min-width: 280px;
+      max-width: 350px;
+      max-height: 400px;
+      overflow-y: auto;
+    `;
+
+    panel.innerHTML = `
+      <div style="font-weight: bold; margin-bottom: 10px; font-size: 14px; color: #ff6b6b;">
+        ⚔️ GvG Tracker
+      </div>
+      <div id="fsh-gvg-stats" style="margin-bottom: 10px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 5px;">
+        <div style="font-size: 10px; opacity: 0.7;">Loading conflict data...</div>
+      </div>
+      <div style="margin-top: 10px;">
+        <button onclick="window.location='index.php?cmd=guild&subcmd=conflicts'" class="custombutton" style="width: 100%; margin-bottom: 5px;">
+          View All Conflicts
+        </button>
+        <button onclick="window.location='index.php?cmd=guild&subcmd=advisor'" class="custombutton" style="width: 100%;">
+          Guild Advisor
+        </button>
+      </div>
+      <div id="fsh-conflict-history" style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 10px;">
+        <div style="font-weight: bold; margin-bottom: 8px; font-size: 12px;">Recent Conflicts</div>
+        <div id="fsh-conflict-list" style="max-height: 200px; overflow-y: auto;"></div>
+      </div>
+    `;
+
+    document.body.appendChild(panel);
+
+    // Update GvG panel every 5 seconds
+    setInterval(() => this.updateGvGPanel(), 5000);
+    this.updateGvGPanel();
+  }
+
+  updateGvGPanel() {
+    const statsDiv = document.getElementById('fsh-gvg-stats');
+    const listDiv = document.getElementById('fsh-conflict-list');
+
+    if (!statsDiv || !listDiv) return;
+
+    // Update stats
+    if (this.gvgData.conflicts.length > 0) {
+      const totalPoints = this.gvgData.conflicts.reduce((sum, c) => sum + c.points, 0);
+      statsDiv.innerHTML = `
+        <div style="margin-bottom: 5px;"><strong>Active Conflicts:</strong> ${this.gvgData.conflicts.length}</div>
+        <div><strong>Total Points:</strong> ${totalPoints}</div>
+      `;
+    } else {
+      statsDiv.innerHTML = `<div style="font-size: 10px; opacity: 0.7;">No active conflicts detected</div>`;
+    }
+
+    // Update conflict history
+    const recentConflicts = this.conflictHistory.slice(-10).reverse();
+    if (recentConflicts.length > 0) {
+      listDiv.innerHTML = recentConflicts.map(conflict => {
+        const timeAgo = this.getTimeAgo(conflict.timestamp);
+        return `
+          <div style="margin-bottom: 8px; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; border-left: 3px solid #c41e3a;">
+            <div style="font-weight: bold; color: #ff6b6b;">${conflict.opponent}</div>
+            <div style="font-size: 10px; margin-top: 3px;">
+              <span style="color: #ffd700;">Points: ${conflict.points}</span> •
+              <span style="opacity: 0.7;">${timeAgo}</span>
+            </div>
+            <div style="font-size: 10px; margin-top: 2px; color: ${conflict.status === 'Won' ? '#44ff44' : conflict.status === 'Lost' ? '#ff4444' : '#ffaa00'};">
+              ${conflict.status}
+            </div>
+          </div>
+        `;
+      }).join('');
+    } else {
+      listDiv.innerHTML = `<div style="font-size: 10px; opacity: 0.6;">No recent conflicts</div>`;
+    }
+  }
+
+  getTimeAgo(timestamp) {
+    const seconds = Math.floor((Date.now() - timestamp) / 1000);
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  }
+
+  enhanceGuildStore() {
+    // Only enhance if we're on the guild store page
+    if (!window.location.href.includes('cmd=guild') || !window.location.href.includes('subcmd=store')) {
+      return;
+    }
+
+    // Add enhanced store controls
+    this.addStoreFilters();
+    this.addStoreSorting();
+    this.addPriceHighlights();
+  }
+
+  addStoreFilters() {
+    const storeContent = document.querySelector('.guild-store-content, #pCC');
+    if (!storeContent) return;
+
+    const filterPanel = document.createElement('div');
+    filterPanel.id = 'fsh-store-filters';
+    filterPanel.style.cssText = `
+      background: rgba(0,0,0,0.7);
+      padding: 15px;
+      margin-bottom: 15px;
+      border-radius: 8px;
+      border: 1px solid #444;
+    `;
+
+    filterPanel.innerHTML = `
+      <div style="font-weight: bold; margin-bottom: 10px; color: #ffd700;">🛒 Store Filters</div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 10px;">
+        <button class="fsh-filter-btn custombutton" data-filter="all" style="font-size: 11px;">All Items</button>
+        <button class="fsh-filter-btn custombutton" data-filter="weapon" style="font-size: 11px;">Weapons</button>
+        <button class="fsh-filter-btn custombutton" data-filter="armor" style="font-size: 11px;">Armor</button>
+        <button class="fsh-filter-btn custombutton" data-filter="potion" style="font-size: 11px;">Potions</button>
+        <button class="fsh-filter-btn custombutton" data-filter="rune" style="font-size: 11px;">Runes</button>
+        <button class="fsh-filter-btn custombutton" data-filter="affordable" style="font-size: 11px;">Affordable</button>
+      </div>
+      <div style="margin-top: 10px;">
+        <label style="margin-right: 10px;">Sort by:</label>
+        <select id="fsh-store-sort" class="customselect" style="padding: 5px;">
+          <option value="default">Default</option>
+          <option value="price-asc">Price (Low to High)</option>
+          <option value="price-desc">Price (High to Low)</option>
+          <option value="level-asc">Level (Low to High)</option>
+          <option value="level-desc">Level (High to Low)</option>
+          <option value="name">Name (A-Z)</option>
+        </select>
+      </div>
+      <div style="margin-top: 10px; font-size: 10px; opacity: 0.7;">
+        💡 Tip: "Affordable" shows items you can buy with current gold
+      </div>
+    `;
+
+    storeContent.insertBefore(filterPanel, storeContent.firstChild);
+
+    // Add filter functionality
+    document.querySelectorAll('.fsh-filter-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const filter = e.target.dataset.filter;
+        this.filterStoreItems(filter);
+      });
+    });
+
+    // Add sort functionality
+    document.getElementById('fsh-store-sort')?.addEventListener('change', (e) => {
+      this.sortStoreItems(e.target.value);
+    });
+  }
+
+  addStoreSorting() {
+    // Store sorting logic is handled in addStoreFilters
+  }
+
+  filterStoreItems(filter) {
+    const items = document.querySelectorAll('.guild-store-item, .item-row, [class*="store-item"]');
+    const player = this.dataParser.getPlayer();
+    const currentGold = player?.currentGold || 0;
+
+    items.forEach(item => {
+      let shouldShow = true;
+
+      if (filter !== 'all') {
+        const itemText = item.textContent.toLowerCase();
+        const itemClasses = item.className.toLowerCase();
+
+        if (filter === 'affordable') {
+          const priceText = item.querySelector('.price, .cost, [class*="price"]')?.textContent;
+          const price = this.parsePrice(priceText);
+          shouldShow = price <= currentGold;
+        } else {
+          shouldShow = itemText.includes(filter) || itemClasses.includes(filter);
+        }
+      }
+
+      item.style.display = shouldShow ? '' : 'none';
+    });
+  }
+
+  sortStoreItems(sortBy) {
+    const container = document.querySelector('.guild-store-content, #pCC');
+    if (!container) return;
+
+    const items = Array.from(container.querySelectorAll('.guild-store-item, .item-row, [class*="store-item"]'));
+
+    items.sort((a, b) => {
+      switch (sortBy) {
+        case 'price-asc':
+          return this.getItemPrice(a) - this.getItemPrice(b);
+        case 'price-desc':
+          return this.getItemPrice(b) - this.getItemPrice(a);
+        case 'level-asc':
+          return this.getItemLevel(a) - this.getItemLevel(b);
+        case 'level-desc':
+          return this.getItemLevel(b) - this.getItemLevel(a);
+        case 'name':
+          return this.getItemName(a).localeCompare(this.getItemName(b));
+        default:
+          return 0;
+      }
+    });
+
+    // Re-append in sorted order
+    items.forEach(item => container.appendChild(item));
+  }
+
+  getItemPrice(element) {
+    const priceText = element.querySelector('.price, .cost, [class*="price"]')?.textContent;
+    return this.parsePrice(priceText);
+  }
+
+  getItemLevel(element) {
+    const levelText = element.querySelector('.level, [class*="level"]')?.textContent;
+    const match = levelText?.match(/(\d+)/);
+    return match ? parseInt(match[1]) : 0;
+  }
+
+  getItemName(element) {
+    return element.querySelector('.item-name, .name, [class*="name"]')?.textContent.trim() || '';
+  }
+
+  parsePrice(text) {
+    if (!text) return 0;
+    const match = text.match(/(\d+,?\d*)/);
+    return match ? parseInt(match[1].replace(/,/g, '')) : 0;
+  }
+
+  addPriceHighlights() {
+    const player = this.dataParser.getPlayer();
+    const currentGold = player?.currentGold || 0;
+
+    const items = document.querySelectorAll('.guild-store-item, .item-row, [class*="store-item"]');
+
+    items.forEach(item => {
+      const priceElement = item.querySelector('.price, .cost, [class*="price"]');
+      if (!priceElement) return;
+
+      const price = this.parsePrice(priceElement.textContent);
+
+      if (price <= currentGold) {
+        // Can afford - highlight green
+        priceElement.style.cssText += 'color: #44ff44 !important; font-weight: bold;';
+      } else {
+        // Cannot afford - highlight red
+        priceElement.style.cssText += 'color: #ff4444 !important;';
+      }
+    });
+  }
+
+  addScoutTowerButton() {
+    // Add quick navigation to Scout Tower relic
+    const navigationPanel = document.createElement('div');
+    navigationPanel.id = 'fsh-scout-tower-btn';
+    navigationPanel.style.cssText = `
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      z-index: 9999;
+    `;
+
+    navigationPanel.innerHTML = `
+      <button onclick="window.location='index.php?cmd=world&subcmd=relic_scout'"
+              class="custombutton"
+              style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                     color: white;
+                     padding: 10px 15px;
+                     border: 2px solid #fff;
+                     font-weight: bold;
+                     box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+        🗼 Scout Tower Relic
+      </button>
+    `;
+
+    document.body.appendChild(navigationPanel);
+  }
+
+  enhanceGuildUI() {
+    // Add quick links panel to guild interface
+    const guildBox = document.querySelector('#minibox-guild');
+    if (!guildBox) return;
+
+    const quickLinksPanel = document.createElement('div');
+    quickLinksPanel.style.cssText = 'margin: 10px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 5px;';
+
+    quickLinksPanel.innerHTML = `
+      <div style="font-weight: bold; margin-bottom: 8px; font-size: 11px;">Quick Links</div>
+      <button onclick="window.location='index.php?cmd=guild&subcmd=store'" class="custombutton" style="width: 100%; margin-bottom: 5px; font-size: 10px;">
+        Guild Store
+      </button>
+      <button onclick="window.location='index.php?cmd=guild&subcmd=conflicts'" class="custombutton" style="width: 100%; margin-bottom: 5px; font-size: 10px;">
+        GvG Conflicts
+      </button>
+      <button onclick="window.location='index.php?cmd=world&subcmd=relic_scout'" class="custombutton" style="width: 100%; font-size: 10px;">
+        Scout Tower
+      </button>
+    `;
+
+    guildBox.querySelector('.minibox-content')?.appendChild(quickLinksPanel);
   }
 }
 

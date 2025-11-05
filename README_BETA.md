@@ -48,6 +48,15 @@ This is the **BETA** version of FallenSwordHelper with enhanced features, improv
 - Copy reports to clipboard or create GitHub issues
 - Privacy-conscious - no personal data collected
 
+### 8. Nginx 500 Error Capture
+- **Automatic detection** of all HTTP 500-level server errors
+- **Full request/response logging** including headers and body (first 10KB)
+- **Visual notifications** when server errors are detected
+- **Detailed error reports** for sending to developers
+- **Click-to-report** functionality from error notifications
+- Captures errors from both Fetch API and XMLHttpRequest
+- Helps developers quickly diagnose server-side issues
+
 ## Configuration Options
 
 ### Performance Settings
@@ -108,7 +117,28 @@ You can also manually report issues:
 - Configuration settings
 - Performance metrics
 - Recent errors with stack traces
+- HTTP 500 errors with full request/response details
 - No personal or game data
+
+### Nginx 500 Error Reporting
+When a server error (HTTP 500) occurs:
+1. A visual notification appears in the top-right corner
+2. Shows the URL that generated the error
+3. Click the notification to open the error report dialog
+4. The report includes:
+   - HTTP status code and status text
+   - Request URL, method, and body
+   - Response headers
+   - Response body (first 10KB for analysis)
+   - Timestamp and page context
+5. Share the report with developers via GitHub or clipboard
+6. Up to 10 HTTP 500 errors are stored in history
+
+**Benefits for developers:**
+- Complete inspector/network log information
+- Full error context without requiring browser dev tools
+- Reproducible error details
+- Server response body for debugging nginx/PHP errors
 
 ## Performance Metrics
 
@@ -131,6 +161,7 @@ The beta version tracks:
 | User Settings Persistence | ❌ | ✅ |
 | Debug Mode | ❌ | ✅ |
 | Error Reporting | ❌ | ✅ |
+| Nginx 500 Error Capture | ❌ | ✅ |
 
 ## Troubleshooting
 
@@ -203,6 +234,17 @@ The beta version uses localStorage for:
 - Any browser supporting ES6+ and localStorage
 
 ## Version History
+
+### 1525-beta-3 (Current)
+- **Added Nginx 500 error capture system**
+- Automatic detection of all HTTP 500-level server errors
+- Full request/response logging (headers, body, status)
+- Visual notifications for server errors
+- Click-to-report functionality from notifications
+- HTTP interceptors for both Fetch and XMLHttpRequest
+- Enhanced error reports with HTTP details prominently displayed
+- Improved error classification and tracking
+- Helps developers quickly diagnose server-side issues
 
 ### 1525-beta-2
 - Added comprehensive error reporting system

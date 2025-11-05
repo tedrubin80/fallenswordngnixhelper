@@ -450,6 +450,9 @@ class FSHStatusIndicator {
   constructor() {
     this.indicator = null;
     this.autoHideTimeout = null;
+    this.menu = null;
+    this.menuOpen = false;
+    this.overlaysVisible = true;
   }
 
   create() {
@@ -477,8 +480,147 @@ class FSHStatusIndicator {
     document.body.appendChild(this.indicator);
 
     this.indicator.addEventListener('click', () => {
-      this.showConfigPanel();
+      this.toggleMenu();
     });
+
+    this.createMenu();
+  }
+
+  createMenu() {
+    this.menu = document.createElement('div');
+    this.menu.id = 'fsh-helper-menu';
+    this.menu.style.cssText = `
+      position: fixed;
+      top: 45px;
+      right: 10px;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      z-index: 10001;
+      min-width: 220px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+      display: none;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      overflow: hidden;
+    `;
+
+    const menuItems = [
+      { label: '⚙️ Configuration', action: () => this.showConfigPanel() },
+      { label: '🛡️ Toggle Buff Panel', action: () => this.togglePanel('fsh-buff-panel') },
+      { label: '📊 Toggle Resource Panel', action: () => this.togglePanel('fsh-resource-panel') },
+      { label: '⚔️ Toggle Quest Panel', action: () => this.togglePanel('fsh-quest-panel') },
+      { label: '🏰 Toggle Guild Quick Actions', action: () => this.togglePanel('fsh-quick-actions') },
+      { separator: true },
+      { label: `👁️ ${this.overlaysVisible ? 'Hide' : 'Show'} All Overlays`, action: () => this.toggleAllOverlays(), id: 'toggle-overlays' },
+      { separator: true },
+      { label: '🐛 Report Issue', action: () => this.reportIssue() }
+    ];
+
+    menuItems.forEach(item => {
+      if (item.separator) {
+        const separator = document.createElement('div');
+        separator.style.cssText = `
+          height: 1px;
+          background: #e0e0e0;
+          margin: 5px 0;
+        `;
+        this.menu.appendChild(separator);
+        return;
+      }
+
+      const menuItem = document.createElement('div');
+      if (item.id) menuItem.id = item.id;
+      menuItem.style.cssText = `
+        padding: 10px 15px;
+        cursor: pointer;
+        transition: background 0.2s;
+        font-size: 12px;
+        color: #333;
+      `;
+      menuItem.textContent = item.label;
+
+      menuItem.addEventListener('mouseover', () => {
+        menuItem.style.background = '#f5f5f5';
+      });
+      menuItem.addEventListener('mouseout', () => {
+        menuItem.style.background = 'transparent';
+      });
+      menuItem.addEventListener('click', () => {
+        item.action();
+        this.closeMenu();
+      });
+
+      this.menu.appendChild(menuItem);
+    });
+
+    document.body.appendChild(this.menu);
+
+    // Close menu when clicking outside
+    document.addEventListener('click', (e) => {
+      if (this.menuOpen && !this.menu.contains(e.target) && !this.indicator.contains(e.target)) {
+        this.closeMenu();
+      }
+    });
+  }
+
+  toggleMenu() {
+    if (this.menuOpen) {
+      this.closeMenu();
+    } else {
+      this.openMenu();
+    }
+  }
+
+  openMenu() {
+    if (!this.menu) return;
+    this.menu.style.display = 'block';
+    this.menuOpen = true;
+  }
+
+  closeMenu() {
+    if (!this.menu) return;
+    this.menu.style.display = 'none';
+    this.menuOpen = false;
+  }
+
+  togglePanel(panelId) {
+    const panel = document.getElementById(panelId);
+    if (panel) {
+      if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+      } else {
+        panel.style.display = 'none';
+      }
+    } else {
+      console.warn(`FSH: Panel ${panelId} not found. It may not be initialized yet.`);
+      alert(`Panel not found. This feature may not be available on this page.`);
+    }
+  }
+
+  toggleAllOverlays() {
+    // Toggle all FSH panels
+    const panelIds = ['fsh-buff-panel', 'fsh-resource-panel', 'fsh-quest-panel', 'fsh-quick-actions'];
+
+    this.overlaysVisible = !this.overlaysVisible;
+
+    panelIds.forEach(panelId => {
+      const panel = document.getElementById(panelId);
+      if (panel) {
+        panel.style.display = this.overlaysVisible ? 'block' : 'none';
+      }
+    });
+
+    // Update menu item text
+    const toggleButton = document.getElementById('toggle-overlays');
+    if (toggleButton) {
+      toggleButton.textContent = `👁️ ${this.overlaysVisible ? 'Hide' : 'Show'} All Overlays`;
+    }
+
+    // Show feedback
+    this.update(
+      `Overlays ${this.overlaysVisible ? 'shown' : 'hidden'}`,
+      'success'
+    );
   }
 
   update(message, type = 'info') {
@@ -494,7 +636,7 @@ class FSHStatusIndicator {
     this.indicator.style.background = colors[type] || colors.info;
     this.indicator.innerHTML = `
       <strong>FSH Beta:</strong> ${message}
-      <div style="font-size: 9px; margin-top: 2px; opacity: 0.8;">Click for settings</div>
+      <div style="font-size: 9px; margin-top: 2px; opacity: 0.8;">Click for Helper Menu</div>
     `;
 
     // Auto-hide success messages
@@ -521,6 +663,13 @@ class FSHStatusIndicator {
   showConfigPanel() {
     const panel = new FSHConfigPanel();
     panel.show();
+  }
+
+  reportIssue() {
+    const config = new FSHConfig();
+    const metrics = new FSHMetrics();
+    const errorReporter = new FSHErrorReporter(config, metrics);
+    errorReporter.showReportDialog();
   }
 }
 

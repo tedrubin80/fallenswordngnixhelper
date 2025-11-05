@@ -277,164 +277,7 @@ class FSHBuffManager {
 }
 
 // ===================================================================
-// 3. RESOURCE TRACKING
-// ===================================================================
-class FSHResourceTracker {
-  constructor(dataParser) {
-    this.dataParser = dataParser;
-    this.history = {
-      stamina: [],
-      gold: [],
-      xp: []
-    };
-    this.trackingInterval = 60000; // Track every minute
-  }
-
-  initialize() {
-    this.startTracking();
-    this.createResourcePanel();
-  }
-
-  startTracking() {
-    setInterval(() => this.recordMetrics(), this.trackingInterval);
-    this.recordMetrics(); // Initial record
-  }
-
-  recordMetrics() {
-    const player = this.dataParser.getPlayer();
-    if (!player) return;
-
-    const timestamp = Date.now();
-
-    if (player.stamina) {
-      this.history.stamina.push({
-        time: timestamp,
-        current: player.stamina.current,
-        max: player.stamina.max
-      });
-    }
-
-    if (player.currentGold !== undefined) {
-      this.history.gold.push({
-        time: timestamp,
-        amount: player.currentGold
-      });
-    }
-
-    if (player.xp) {
-      this.history.xp.push({
-        time: timestamp,
-        current: player.xp.current,
-        next: player.xp.next
-      });
-    }
-
-    // Keep only last hour of data
-    const oneHourAgo = timestamp - 3600000;
-    Object.keys(this.history).forEach(key => {
-      this.history[key] = this.history[key].filter(entry => entry.time > oneHourAgo);
-    });
-  }
-
-  calculateStaminaToFull() {
-    const player = this.dataParser.getPlayer();
-    if (!player || !player.stamina) return null;
-
-    const staminaNeeded = player.stamina.max - player.stamina.current;
-    const gainPerHour = player.staminaGain || 0;
-
-    if (gainPerHour === 0) return { hours: Infinity, minutes: Infinity };
-
-    const hoursToFull = staminaNeeded / gainPerHour;
-    const hours = Math.floor(hoursToFull);
-    const minutes = Math.floor((hoursToFull - hours) * 60);
-
-    return { hours, minutes, totalMinutes: Math.floor(hoursToFull * 60) };
-  }
-
-  calculateGoldPerHour() {
-    if (this.history.gold.length < 2) return 0;
-
-    const recent = this.history.gold.slice(-10); // Last 10 entries
-    const first = recent[0];
-    const last = recent[recent.length - 1];
-
-    const timeDiff = (last.time - first.time) / 3600000; // in hours
-    const goldDiff = last.amount - first.amount;
-
-    return timeDiff > 0 ? Math.round(goldDiff / timeDiff) : 0;
-  }
-
-  calculateXPPerHour() {
-    if (this.history.xp.length < 2) return 0;
-
-    const recent = this.history.xp.slice(-10);
-    const first = recent[0];
-    const last = recent[recent.length - 1];
-
-    const timeDiff = (last.time - first.time) / 3600000;
-    const xpDiff = last.current - first.current;
-
-    return timeDiff > 0 ? Math.round(xpDiff / timeDiff) : 0;
-  }
-
-  createResourcePanel() {
-    const panel = document.createElement('div');
-    panel.id = 'fsh-resource-panel';
-    panel.style.cssText = `
-      position: fixed;
-      top: 100px;
-      left: 20px;
-      background: rgba(0, 0, 0, 0.85);
-      color: white;
-      padding: 15px;
-      border-radius: 8px;
-      z-index: 9998;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      font-size: 11px;
-      min-width: 200px;
-    `;
-
-    panel.innerHTML = `
-      <div style="font-weight: bold; margin-bottom: 10px; font-size: 13px;">Resource Tracker</div>
-      <div id="fsh-resource-stats"></div>
-    `;
-
-    document.body.appendChild(panel);
-
-    setInterval(() => this.updateResourcePanel(), 1000);
-  }
-
-  updateResourcePanel() {
-    const stats = document.getElementById('fsh-resource-stats');
-    if (!stats) return;
-
-    const staminaInfo = this.calculateStaminaToFull();
-    const goldPerHour = this.calculateGoldPerHour();
-    const xpPerHour = this.calculateXPPerHour();
-
-    let html = '<div style="line-height: 1.8;">';
-
-    if (staminaInfo) {
-      html += `<div><strong>Time to Full:</strong> ${staminaInfo.hours}h ${staminaInfo.minutes}m</div>`;
-    }
-
-    if (goldPerHour !== 0) {
-      html += `<div><strong>Gold/Hour:</strong> ${goldPerHour.toLocaleString()}</div>`;
-    }
-
-    if (xpPerHour !== 0) {
-      html += `<div><strong>XP/Hour:</strong> ${xpPerHour.toLocaleString()}</div>`;
-    }
-
-    html += '</div>';
-
-    stats.innerHTML = html;
-  }
-}
-
-// ===================================================================
-// 4. EQUIPMENT ASSISTANT
+// 3. EQUIPMENT ASSISTANT
 // ===================================================================
 class FSHEquipmentAssistant {
   constructor(dataParser) {
@@ -506,7 +349,7 @@ class FSHEquipmentAssistant {
 }
 
 // ===================================================================
-// 5. GUILD HELPER - GvG, Guild Store, Scout Tower
+// 4. GUILD HELPER - GvG, Guild Store, Scout Tower
 // ===================================================================
 class FSHGuildHelper {
   constructor(dataParser) {
@@ -940,7 +783,7 @@ class FSHGuildHelper {
 }
 
 // ===================================================================
-// 6. QUEST & EVENT TRACKER
+// 5. QUEST & EVENT TRACKER
 // ===================================================================
 class FSHQuestTracker {
   constructor(dataParser) {
@@ -1036,7 +879,7 @@ class FSHQuestTracker {
 }
 
 // ===================================================================
-// 7. COMBAT ENHANCEMENTS
+// 6. COMBAT ENHANCEMENTS
 // ===================================================================
 class FSHCombatEnhancer {
   constructor(dataParser) {
@@ -1122,7 +965,7 @@ class FSHCombatEnhancer {
 }
 
 // ===================================================================
-// 8. NAVIGATION TOOLS
+// 7. NAVIGATION TOOLS
 // ===================================================================
 class FSHNavigator {
   constructor(dataParser) {
@@ -1193,7 +1036,7 @@ class FSHNavigator {
 }
 
 // ===================================================================
-// 9. MARKET TOOLS
+// 8. MARKET TOOLS
 // ===================================================================
 class FSHMarketAnalyzer {
   constructor(dataParser) {
@@ -1302,7 +1145,7 @@ class FSHMarketAnalyzer {
 }
 
 // ===================================================================
-// 10. QUALITY OF LIFE FEATURES
+// 9. QUALITY OF LIFE FEATURES
 // ===================================================================
 class FSHQoLFeatures {
   constructor(dataParser) {
@@ -1457,9 +1300,6 @@ class FSHEnhancementController {
     this.modules.buffManager.initialize();
     this.modules.buffManager.createBuffPanel();
 
-    this.modules.resourceTracker = new FSHResourceTracker(this.modules.dataParser);
-    this.modules.resourceTracker.initialize();
-
     this.modules.equipmentAssistant = new FSHEquipmentAssistant(this.modules.dataParser);
     this.modules.equipmentAssistant.initialize();
 
@@ -1494,7 +1334,7 @@ class FSHEnhancementController {
   disable() {
     this.enabled = false;
     // Remove UI elements
-    ['fsh-buff-panel', 'fsh-resource-panel', 'fsh-quest-panel', 'fsh-quick-actions'].forEach(id => {
+    ['fsh-buff-panel', 'fsh-quest-panel', 'fsh-quick-actions'].forEach(id => {
       document.getElementById(id)?.remove();
     });
   }

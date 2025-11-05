@@ -737,6 +737,12 @@ class FSHStatusIndicator {
   }
 
   createMenu() {
+    // Remove any existing menu from previous script versions
+    const existingMenu = document.getElementById('fsh-helper-menu');
+    if (existingMenu) {
+      existingMenu.remove();
+    }
+
     this.menu = document.createElement('div');
     this.menu.id = 'fsh-helper-menu';
     this.menu.style.cssText = `
@@ -774,6 +780,9 @@ class FSHStatusIndicator {
       { label: '🐛 Report Issue', action: () => this.reportIssue() }
     ];
 
+    console.log('FSH: Creating helper menu with items:', menuItems.filter(i => !i.separator).map(i => i.label));
+
+    let menuItemCount = 0;
     menuItems.forEach(item => {
       if (item.separator) {
         const separator = document.createElement('div');
@@ -809,9 +818,11 @@ class FSHStatusIndicator {
       });
 
       this.menu.appendChild(menuItem);
+      menuItemCount++;
     });
 
     document.body.appendChild(this.menu);
+    console.log(`FSH: Helper menu created with ${menuItemCount} items (including Scout Tower and Debug functions)`);
 
     // Close menu when clicking outside
     document.addEventListener('click', (e) => {

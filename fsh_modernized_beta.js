@@ -756,6 +756,7 @@ class FSHStatusIndicator {
 
     const menuItems = [
       { label: '⚙️ Configuration', action: () => this.showConfigPanel() },
+      { separator: true },
       { label: '🛡️ Toggle Buff Panel', action: () => this.togglePanel('fsh-buff-panel') },
       { label: '⚔️ Toggle Quest Panel', action: () => this.togglePanel('fsh-quest-panel') },
       { label: '🏰 Toggle Guild Quick Actions', action: () => this.togglePanel('fsh-quick-actions') },
@@ -763,6 +764,12 @@ class FSHStatusIndicator {
       { label: '🗼 Toggle Scout Tower Button', action: () => this.togglePanel('fsh-scout-tower-btn') },
       { separator: true },
       { label: `👁️ ${this.overlaysVisible ? 'Hide' : 'Show'} All Overlays`, action: () => this.toggleAllOverlays(), id: 'toggle-overlays' },
+      { separator: true },
+      { label: '🔧 Debug: Toggle Debug Mode', action: () => this.toggleDebugMode() },
+      { label: '📊 Debug: View Logs', action: () => this.showDebugLogs() },
+      { label: '💾 Debug: Export Data', action: () => this.exportDebugData() },
+      { label: '🗑️ Debug: Clear Storage', action: () => this.clearLocalStorage() },
+      { label: '📋 Debug: View Config', action: () => this.viewConfig() },
       { separator: true },
       { label: '🐛 Report Issue', action: () => this.reportIssue() }
     ];
@@ -921,6 +928,196 @@ class FSHStatusIndicator {
     const metrics = new FSHMetrics();
     const errorReporter = new FSHErrorReporter(config, metrics);
     errorReporter.showReportDialog();
+  }
+
+  toggleDebugMode() {
+    const config = new FSHConfig();
+    const currentMode = config.get('debugMode');
+    config.set('debugMode', !currentMode);
+    alert(`Debug mode is now ${!currentMode ? 'ENABLED' : 'DISABLED'}. Refresh the page for changes to take effect.`);
+    console.log(`FSH: Debug mode toggled to ${!currentMode}`);
+  }
+
+  showDebugLogs() {
+    const logs = this.getDebugLogs();
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.8);
+      z-index: 10002;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    `;
+
+    const panel = document.createElement('div');
+    panel.style.cssText = `
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 20px;
+      border-radius: 8px;
+      width: 80%;
+      max-width: 900px;
+      max-height: 80vh;
+      overflow-y: auto;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 12px;
+    `;
+
+    panel.innerHTML = `
+      <h2 style="color: #4ec9b0; margin-top: 0;">Debug Logs</h2>
+      <pre style="background: #252526; padding: 15px; border-radius: 4px; overflow-x: auto;">${logs}</pre>
+      <button onclick="this.closest('[style*=\\'position: fixed\\']').remove()"
+              style="margin-top: 15px; padding: 10px 20px; background: #0e639c; color: white; border: none; border-radius: 4px; cursor: pointer;">
+        Close
+      </button>
+    `;
+
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+  }
+
+  getDebugLogs() {
+    const logs = [];
+
+    // Collect FSH-related console logs from localStorage if available
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('fsh_')) {
+        try {
+          const value = localStorage.getItem(key);
+          logs.push(`${key}: ${value.substring(0, 200)}${value.length > 200 ? '...' : ''}`);
+        } catch (e) {
+          logs.push(`${key}: [Error reading value]`);
+        }
+      }
+    }
+
+    // Add performance metrics
+    const metrics = new FSHMetrics();
+    const stats = metrics.getStats();
+    logs.push('\n--- Performance Metrics ---');
+    logs.push(`Total Requests: ${stats.total}`);
+    logs.push(`Successful: ${stats.successful}`);
+    logs.push(`Failed: ${stats.failed}`);
+    logs.push(`Average Duration: ${stats.avgDuration}ms`);
+    logs.push(`Error Rate: ${stats.errorRate}%`);
+
+    // Add config
+    const config = new FSHConfig();
+    logs.push('\n--- Current Configuration ---');
+    logs.push(JSON.stringify(config.config, null, 2));
+
+    return logs.length > 0 ? logs.join('\n') : 'No debug logs available';
+  }
+
+  exportDebugData() {
+    const data = {
+      timestamp: new Date().toISOString(),
+      config: new FSHConfig().config,
+      metrics: new FSHMetrics().getStats(),
+      localStorage: {},
+      userAgent: navigator.userAgent,
+      url: window.location.href
+    };
+
+    // Export localStorage data
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('fsh_')) {
+        try {
+          data.localStorage[key] = localStorage.getItem(key);
+        } catch (e) {
+          data.localStorage[key] = '[Error reading]';
+        }
+      }
+    }
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fsh-debug-data-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    alert('Debug data exported successfully!');
+  }
+
+  clearLocalStorage() {
+    if (!confirm('Are you sure you want to clear all FSH data from local storage? This cannot be undone.')) {
+      return;
+    }
+
+    let cleared = 0;
+    const keys = [];
+
+    // Collect FSH keys
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('fsh_')) {
+        keys.push(key);
+      }
+    }
+
+    // Remove them
+    keys.forEach(key => {
+      localStorage.removeItem(key);
+      cleared++;
+    });
+
+    alert(`Cleared ${cleared} items from local storage. Refresh the page to reset FSH.`);
+  }
+
+  viewConfig() {
+    const config = new FSHConfig();
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.8);
+      z-index: 10002;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    `;
+
+    const panel = document.createElement('div');
+    panel.style.cssText = `
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 20px;
+      border-radius: 8px;
+      width: 600px;
+      max-width: 90%;
+      max-height: 80vh;
+      overflow-y: auto;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 12px;
+    `;
+
+    panel.innerHTML = `
+      <h2 style="color: #4ec9b0; margin-top: 0;">Current Configuration</h2>
+      <pre style="background: #252526; padding: 15px; border-radius: 4px; overflow-x: auto;">${JSON.stringify(config.config, null, 2)}</pre>
+      <button onclick="this.closest('[style*=\\'position: fixed\\']').remove()"
+              style="margin-top: 15px; padding: 10px 20px; background: #0e639c; color: white; border: none; border-radius: 4px; cursor: pointer;">
+        Close
+      </button>
+    `;
+
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
   }
 }
 

@@ -563,7 +563,7 @@ class FSHErrorReporter {
       </p>
 
       <div style="margin: 15px 0;">
-        <label style="display: block; margin-bottom: 5px; font-weight: bold; font-size: 13px;">
+        <label for="fsh-error-description" style="display: block; margin-bottom: 5px; font-weight: bold; font-size: 13px;">
           Describe what happened (optional):
         </label>
         <textarea id="fsh-error-description" placeholder="What were you doing when the error occurred?"
@@ -571,7 +571,7 @@ class FSHErrorReporter {
       </div>
 
       <div style="margin: 15px 0;">
-        <label style="display: block; margin-bottom: 5px; font-weight: bold; font-size: 13px;">
+        <label for="fsh-error-expected" style="display: block; margin-bottom: 5px; font-weight: bold; font-size: 13px;">
           Expected behavior (optional):
         </label>
         <textarea id="fsh-error-expected" placeholder="What did you expect to happen?"
@@ -737,6 +737,12 @@ class FSHStatusIndicator {
   }
 
   createMenu() {
+    // Remove any existing menu from previous script versions
+    const existingMenu = document.getElementById('fsh-helper-menu');
+    if (existingMenu) {
+      existingMenu.remove();
+    }
+
     this.menu = document.createElement('div');
     this.menu.id = 'fsh-helper-menu';
     this.menu.style.cssText = `
@@ -774,6 +780,9 @@ class FSHStatusIndicator {
       { label: '🐛 Report Issue', action: () => this.reportIssue() }
     ];
 
+    console.log('FSH: Creating helper menu with items:', menuItems.filter(i => !i.separator).map(i => i.label));
+
+    let menuItemCount = 0;
     menuItems.forEach(item => {
       if (item.separator) {
         const separator = document.createElement('div');
@@ -809,9 +818,11 @@ class FSHStatusIndicator {
       });
 
       this.menu.appendChild(menuItem);
+      menuItemCount++;
     });
 
     document.body.appendChild(this.menu);
+    console.log(`FSH: Helper menu created with ${menuItemCount} items (including Scout Tower and Debug functions)`);
 
     // Close menu when clicking outside
     document.addEventListener('click', (e) => {
@@ -1162,42 +1173,42 @@ class FSHConfigPanel {
 
       <div style="margin-bottom: 20px;">
         <h3 style="color: #667eea; font-size: 14px;">Performance Settings</h3>
-        <label style="display: block; margin-bottom: 10px;">
+        <div style="display: block; margin-bottom: 10px;">
           <input type="checkbox" id="fsh-debug" ${config.get('debugMode') ? 'checked' : ''}>
-          Enable Debug Mode
-        </label>
-        <label style="display: block; margin-bottom: 10px;">
+          <label for="fsh-debug">Enable Debug Mode</label>
+        </div>
+        <div style="display: block; margin-bottom: 10px;">
           <input type="checkbox" id="fsh-status" ${config.get('showStatusIndicator') ? 'checked' : ''}>
-          Show Status Indicator
-        </label>
-        <label style="display: block; margin-bottom: 10px;">
+          <label for="fsh-status">Show Status Indicator</label>
+        </div>
+        <div style="display: block; margin-bottom: 10px;">
           <input type="checkbox" id="fsh-metrics" ${config.get('enableMetrics') ? 'checked' : ''}>
-          Enable Performance Metrics
-        </label>
-        <label style="display: block; margin-bottom: 10px;">
+          <label for="fsh-metrics">Enable Performance Metrics</label>
+        </div>
+        <div style="display: block; margin-bottom: 10px;">
           <input type="checkbox" id="fsh-cache" ${config.get('cacheEnabled') ? 'checked' : ''}>
-          Enable Smart Caching
-        </label>
-        <label style="display: block; margin-bottom: 10px;">
+          <label for="fsh-cache">Enable Smart Caching</label>
+        </div>
+        <div style="display: block; margin-bottom: 10px;">
           <input type="checkbox" id="fsh-adaptive" ${config.get('adaptiveRetry') ? 'checked' : ''}>
-          Adaptive Retry Strategy
-        </label>
+          <label for="fsh-adaptive">Adaptive Retry Strategy</label>
+        </div>
       </div>
 
       <div style="margin-bottom: 20px;">
         <h3 style="color: #667eea; font-size: 14px;">Network Settings</h3>
-        <label style="display: block; margin-bottom: 10px;">
-          Max Retries:
+        <div style="display: block; margin-bottom: 10px;">
+          <label for="fsh-retries">Max Retries:</label>
           <input type="number" id="fsh-retries" value="${config.get('maxRetries')}" min="1" max="10" style="width: 60px; margin-left: 10px;">
-        </label>
-        <label style="display: block; margin-bottom: 10px;">
-          Base Delay (ms):
+        </div>
+        <div style="display: block; margin-bottom: 10px;">
+          <label for="fsh-delay">Base Delay (ms):</label>
           <input type="number" id="fsh-delay" value="${config.get('baseDelay')}" min="500" max="5000" step="100" style="width: 80px; margin-left: 10px;">
-        </label>
-        <label style="display: block; margin-bottom: 10px;">
-          Timeout (ms):
+        </div>
+        <div style="display: block; margin-bottom: 10px;">
+          <label for="fsh-timeout">Timeout (ms):</label>
           <input type="number" id="fsh-timeout" value="${config.get('timeout')}" min="5000" max="30000" step="1000" style="width: 80px; margin-left: 10px;">
-        </label>
+        </div>
       </div>
 
       <div style="margin-bottom: 20px; padding: 10px; background: #f5f5f5; border-radius: 4px;">

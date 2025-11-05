@@ -760,7 +760,8 @@ class FSHStatusIndicator {
       { label: '⚔️ Toggle Quest Panel', action: () => this.togglePanel('fsh-quest-panel') },
       { label: '🏰 Toggle Guild Quick Actions', action: () => this.togglePanel('fsh-quick-actions') },
       { label: '⚔️ Toggle GvG Tracker', action: () => this.togglePanel('fsh-gvg-panel') },
-      { label: '🗼 Toggle Scout Tower Button', action: () => this.togglePanel('fsh-scout-tower-btn') },
+      { separator: true },
+      { label: '🗼 Scout Tower', action: () => window.location='index.php?cmd=guild&subcmd=scouttower' },
       { separator: true },
       { label: `👁️ ${this.overlaysVisible ? 'Hide' : 'Show'} All Overlays`, action: () => this.toggleAllOverlays(), id: 'toggle-overlays' },
       { separator: true },
@@ -850,7 +851,7 @@ class FSHStatusIndicator {
 
   toggleAllOverlays() {
     // Toggle all FSH panels
-    const panelIds = ['fsh-buff-panel', 'fsh-quest-panel', 'fsh-quick-actions', 'fsh-gvg-panel', 'fsh-scout-tower-btn'];
+    const panelIds = ['fsh-buff-panel', 'fsh-quest-panel', 'fsh-quick-actions', 'fsh-gvg-panel'];
 
     this.overlaysVisible = !this.overlaysVisible;
 

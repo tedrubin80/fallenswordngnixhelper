@@ -177,6 +177,16 @@ class FSHBuffManager {
   }
 
   showNotification(title, message, type = 'info') {
+    // Check if buff notifications are enabled
+    try {
+      const prefs = JSON.parse(localStorage.getItem('fsh_panel_preferences') || '{}');
+      if (prefs.enableBuffNotifications === false) {
+        return; // Don't show notification if disabled
+      }
+    } catch (e) {
+      // If preferences not found, show notification by default
+    }
+
     const notification = document.createElement('div');
     notification.style.cssText = `
       position: fixed;
@@ -292,7 +302,17 @@ class FSHResourceTracker {
 
   initialize() {
     this.startTracking();
-    this.createResourcePanel();
+
+    // Check preference before creating panel
+    try {
+      const prefs = JSON.parse(localStorage.getItem('fsh_panel_preferences') || '{}');
+      if (prefs.showResourcePanel !== false) {
+        this.createResourcePanel();
+      }
+    } catch (e) {
+      // If preferences not found, create panel by default
+      this.createResourcePanel();
+    }
   }
 
   startTracking() {
@@ -463,6 +483,16 @@ class FSHEquipmentAssistant {
   }
 
   showLowDurabilityWarning(item, percent) {
+    // Check if durability notifications are enabled
+    try {
+      const prefs = JSON.parse(localStorage.getItem('fsh_panel_preferences') || '{}');
+      if (prefs.enableDurabilityNotifications === false) {
+        return; // Don't show notification if disabled
+      }
+    } catch (e) {
+      // If preferences not found, show notification by default
+    }
+
     // Store last warning time to avoid spam
     const storageKey = `fsh-durability-warning-${item.itemId}`;
     const lastWarning = localStorage.getItem(storageKey);
@@ -526,8 +556,23 @@ class FSHGuildHelper {
     this.parseGuildData();
     this.enhanceGuildUI();
     this.enhanceGuildStore();
-    this.addScoutTowerButton();
-    this.trackGvGConflicts();
+
+    // Check preferences before creating UI elements
+    try {
+      const prefs = JSON.parse(localStorage.getItem('fsh_panel_preferences') || '{}');
+
+      if (prefs.showScoutTowerButton !== false) {
+        this.addScoutTowerButton();
+      }
+
+      if (prefs.showGvGPanel !== false) {
+        this.trackGvGConflicts();
+      }
+    } catch (e) {
+      // If preferences not found, create elements by default
+      this.addScoutTowerButton();
+      this.trackGvGConflicts();
+    }
 
     // Periodic updates
     setInterval(() => this.parseGuildData(), 10000);
@@ -1435,6 +1480,67 @@ class FSHEnhancementController {
   constructor() {
     this.modules = {};
     this.enabled = true;
+    this.preferences = this.loadPreferences();
+
+    // Listen for preference changes
+    window.addEventListener('fsh-preference-changed', (e) => {
+      this.handlePreferenceChange(e.detail.key, e.detail.value);
+    });
+  }
+
+  loadPreferences() {
+    try {
+      const stored = localStorage.getItem('fsh_panel_preferences');
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (error) {
+      console.warn('FSH: Could not load panel preferences:', error);
+    }
+    return {
+      showBuffPanel: true,
+      showResourcePanel: true,
+      showGvGPanel: true,
+      showScoutTowerButton: true,
+      enableBuffNotifications: true,
+      enableDurabilityNotifications: true
+    };
+  }
+
+  getPreference(key) {
+    return this.preferences[key] !== undefined ? this.preferences[key] : true;
+  }
+
+  handlePreferenceChange(key, value) {
+    this.preferences[key] = value;
+
+    // Handle panel visibility changes
+    switch(key) {
+      case 'showBuffPanel':
+        const buffPanel = document.getElementById('fsh-buff-panel');
+        if (buffPanel) {
+          buffPanel.style.display = value ? 'block' : 'none';
+        }
+        break;
+      case 'showResourcePanel':
+        const resourcePanel = document.getElementById('fsh-resource-panel');
+        if (resourcePanel) {
+          resourcePanel.style.display = value ? 'block' : 'none';
+        }
+        break;
+      case 'showGvGPanel':
+        const gvgPanel = document.getElementById('fsh-gvg-panel');
+        if (gvgPanel) {
+          gvgPanel.style.display = value ? 'block' : 'none';
+        }
+        break;
+      case 'showScoutTowerButton':
+        const scoutButton = document.getElementById('fsh-scout-tower-btn');
+        if (scoutButton) {
+          scoutButton.style.display = value ? 'block' : 'none';
+        }
+        break;
+    }
   }
 
   async initialize() {
@@ -1452,7 +1558,9 @@ class FSHEnhancementController {
     // Initialize all other modules
     this.modules.buffManager = new FSHBuffManager(this.modules.dataParser);
     this.modules.buffManager.initialize();
-    this.modules.buffManager.createBuffPanel();
+    if (this.getPreference('showBuffPanel')) {
+      this.modules.buffManager.createBuffPanel();
+    }
 
     this.modules.resourceTracker = new FSHResourceTracker(this.modules.dataParser);
     this.modules.resourceTracker.initialize();

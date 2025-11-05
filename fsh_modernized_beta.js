@@ -524,6 +524,293 @@ class FSHStatusIndicator {
   }
 }
 
+// Control panel for managing all FSH features and panels
+class FSHControlPanel {
+  constructor() {
+    this.preferences = this.loadPreferences();
+    this.menuButton = null;
+  }
+
+  loadPreferences() {
+    try {
+      const stored = localStorage.getItem('fsh_panel_preferences');
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (error) {
+      console.warn('FSH: Could not load panel preferences:', error);
+    }
+    return {
+      showBuffPanel: true,
+      showResourcePanel: true,
+      showGvGPanel: true,
+      showScoutTowerButton: true,
+      showStatusIndicator: true,
+      enableBuffNotifications: true,
+      enableDurabilityNotifications: true,
+      showConfigPanel: true
+    };
+  }
+
+  savePreferences() {
+    try {
+      localStorage.setItem('fsh_panel_preferences', JSON.stringify(this.preferences));
+    } catch (error) {
+      console.warn('FSH: Could not save panel preferences:', error);
+    }
+  }
+
+  get(key) {
+    return this.preferences[key] !== undefined ? this.preferences[key] : true;
+  }
+
+  set(key, value) {
+    this.preferences[key] = value;
+    this.savePreferences();
+    // Dispatch event for panels to listen to
+    window.dispatchEvent(new CustomEvent('fsh-preference-changed', {
+      detail: { key, value }
+    }));
+  }
+
+  createMenuButton() {
+    if (this.menuButton) return;
+
+    this.menuButton = document.createElement('div');
+    this.menuButton.id = 'fsh-control-menu-button';
+    this.menuButton.style.cssText = `
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      z-index: 10005;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 10px 15px;
+      border-radius: 8px;
+      border: 2px solid rgba(255,255,255,0.3);
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+      transition: all 0.3s ease;
+      user-select: none;
+    `;
+
+    this.menuButton.innerHTML = `⚙️ FSH Helper`;
+
+    this.menuButton.addEventListener('mouseenter', () => {
+      this.menuButton.style.transform = 'scale(1.05)';
+      this.menuButton.style.boxShadow = '0 6px 20px rgba(0,0,0,0.4)';
+    });
+
+    this.menuButton.addEventListener('mouseleave', () => {
+      this.menuButton.style.transform = 'scale(1)';
+      this.menuButton.style.boxShadow = '0 4px 15px rgba(0,0,0,0.3)';
+    });
+
+    this.menuButton.addEventListener('click', () => {
+      this.showControlPanel();
+    });
+
+    document.body.appendChild(this.menuButton);
+  }
+
+  showControlPanel() {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.75);
+      z-index: 10006;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    `;
+
+    const panel = document.createElement('div');
+    panel.style.cssText = `
+      background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+      color: white;
+      padding: 25px;
+      border-radius: 12px;
+      max-width: 550px;
+      max-height: 85vh;
+      overflow-y: auto;
+      box-shadow: 0 15px 50px rgba(0,0,0,0.5);
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    `;
+
+    panel.innerHTML = `
+      <h2 style="margin-top: 0; color: white; display: flex; align-items: center; gap: 10px;">
+        ⚙️ FSH Helper Control Panel
+      </h2>
+      <p style="font-size: 13px; opacity: 0.9; margin-bottom: 20px; line-height: 1.5;">
+        Enable or disable helper features and modal boxes. Changes apply immediately.
+      </p>
+
+      <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+        <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 15px; color: #ffd700;">
+          📊 Information Panels
+        </h3>
+        <label style="display: block; margin-bottom: 12px; cursor: pointer; font-size: 13px;">
+          <input type="checkbox" id="fsh-pref-buff-panel" ${this.get('showBuffPanel') ? 'checked' : ''}
+                 style="margin-right: 8px; cursor: pointer;">
+          Show Buff Panel (bottom-right corner)
+        </label>
+        <label style="display: block; margin-bottom: 12px; cursor: pointer; font-size: 13px;">
+          <input type="checkbox" id="fsh-pref-resource-panel" ${this.get('showResourcePanel') ? 'checked' : ''}
+                 style="margin-right: 8px; cursor: pointer;">
+          Show Resource Tracker Panel (left sidebar)
+        </label>
+        <label style="display: block; margin-bottom: 0; cursor: pointer; font-size: 13px;">
+          <input type="checkbox" id="fsh-pref-gvg-panel" ${this.get('showGvGPanel') ? 'checked' : ''}
+                 style="margin-right: 8px; cursor: pointer;">
+          Show GvG Conflicts Panel (left sidebar)
+        </label>
+      </div>
+
+      <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+        <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 15px; color: #ffd700;">
+          🔔 Notifications
+        </h3>
+        <label style="display: block; margin-bottom: 12px; cursor: pointer; font-size: 13px;">
+          <input type="checkbox" id="fsh-pref-buff-notif" ${this.get('enableBuffNotifications') ? 'checked' : ''}
+                 style="margin-right: 8px; cursor: pointer;">
+          Enable Buff Expiration Warnings
+        </label>
+        <label style="display: block; margin-bottom: 0; cursor: pointer; font-size: 13px;">
+          <input type="checkbox" id="fsh-pref-durability-notif" ${this.get('enableDurabilityNotifications') ? 'checked' : ''}
+                 style="margin-right: 8px; cursor: pointer;">
+          Enable Low Durability Warnings
+        </label>
+      </div>
+
+      <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+        <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 15px; color: #ffd700;">
+          🎮 UI Elements
+        </h3>
+        <label style="display: block; margin-bottom: 12px; cursor: pointer; font-size: 13px;">
+          <input type="checkbox" id="fsh-pref-scout-button" ${this.get('showScoutTowerButton') ? 'checked' : ''}
+                 style="margin-right: 8px; cursor: pointer;">
+          Show Scout Tower Quick Button
+        </label>
+        <label style="display: block; margin-bottom: 0; cursor: pointer; font-size: 13px;">
+          <input type="checkbox" id="fsh-pref-status-indicator" ${this.get('showStatusIndicator') ? 'checked' : ''}
+                 style="margin-right: 8px; cursor: pointer;">
+          Show Status Indicator (top-right)
+        </label>
+      </div>
+
+      <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+        <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 15px; color: #ffd700;">
+          ⚙️ Advanced Settings
+        </h3>
+        <button id="fsh-open-config" style="width: 100%; padding: 10px; background: rgba(255,255,255,0.2);
+                border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 5px; cursor: pointer;
+                font-size: 13px; font-weight: bold; transition: all 0.2s;">
+          🔧 Open Advanced Configuration
+        </button>
+      </div>
+
+      <div style="display: flex; gap: 10px; justify-content: flex-end;">
+        <button id="fsh-control-reset" style="padding: 10px 20px; background: rgba(255,255,255,0.15);
+                border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 6px; cursor: pointer;
+                font-size: 13px;">
+          Reset to Defaults
+        </button>
+        <button id="fsh-control-close" style="padding: 10px 20px; background: rgba(255,255,255,0.3);
+                border: 1px solid rgba(255,255,255,0.4); color: white; border-radius: 6px; cursor: pointer;
+                font-size: 13px; font-weight: bold;">
+          Close
+        </button>
+      </div>
+    `;
+
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    // Add hover effects to buttons
+    const buttons = panel.querySelectorAll('button');
+    buttons.forEach(btn => {
+      btn.addEventListener('mouseenter', () => {
+        btn.style.background = 'rgba(255,255,255,0.4)';
+      });
+      btn.addEventListener('mouseleave', () => {
+        if (btn.id === 'fsh-control-close' || btn.id === 'fsh-open-config') {
+          btn.style.background = 'rgba(255,255,255,0.3)';
+        } else {
+          btn.style.background = 'rgba(255,255,255,0.15)';
+        }
+      });
+    });
+
+    // Event listeners for checkboxes - save immediately on change
+    const checkboxes = {
+      'fsh-pref-buff-panel': 'showBuffPanel',
+      'fsh-pref-resource-panel': 'showResourcePanel',
+      'fsh-pref-gvg-panel': 'showGvGPanel',
+      'fsh-pref-buff-notif': 'enableBuffNotifications',
+      'fsh-pref-durability-notif': 'enableDurabilityNotifications',
+      'fsh-pref-scout-button': 'showScoutTowerButton',
+      'fsh-pref-status-indicator': 'showStatusIndicator'
+    };
+
+    Object.keys(checkboxes).forEach(id => {
+      const checkbox = document.getElementById(id);
+      if (checkbox) {
+        checkbox.addEventListener('change', () => {
+          this.set(checkboxes[id], checkbox.checked);
+        });
+      }
+    });
+
+    // Open advanced config button
+    document.getElementById('fsh-open-config').addEventListener('click', () => {
+      overlay.remove();
+      const configPanel = new FSHConfigPanel();
+      configPanel.show();
+    });
+
+    // Reset button
+    document.getElementById('fsh-control-reset').addEventListener('click', () => {
+      if (confirm('Reset all panel preferences to defaults?')) {
+        this.preferences = this.loadPreferences.call({});
+        this.savePreferences();
+        overlay.remove();
+        // Reload page for changes to take effect
+        window.location.reload();
+      }
+    });
+
+    // Close button
+    document.getElementById('fsh-control-close').addEventListener('click', () => {
+      overlay.remove();
+    });
+
+    // Close on overlay click
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+      }
+    });
+  }
+
+  initialize() {
+    // Wait for body to be available
+    if (document.body) {
+      this.createMenuButton();
+    } else {
+      document.addEventListener('DOMContentLoaded', () => {
+        this.createMenuButton();
+      });
+    }
+  }
+}
+
 // Configuration panel for user settings
 class FSHConfigPanel {
   show() {
@@ -629,6 +916,16 @@ class FSHConfigPanel {
         </div>
       </div>
 
+      <div style="margin-bottom: 20px; padding: 10px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 4px;">
+        <h3 style="color: white; font-size: 14px; margin-top: 0;">Panel Controls</h3>
+        <div style="font-size: 12px; line-height: 1.6; color: white; margin-bottom: 10px; opacity: 0.9;">
+          Manage which helper panels and notifications are shown.
+        </div>
+        <button id="fsh-open-control-panel" style="width: 100%; padding: 8px 12px; font-size: 12px; background: rgba(255,255,255,0.3); color: white; border: 1px solid rgba(255,255,255,0.4); border-radius: 4px; cursor: pointer; font-weight: bold;">
+          ⚙️ Open Helper Control Panel
+        </button>
+      </div>
+
       <div style="display: flex; gap: 10px; justify-content: flex-end;">
         <button id="fsh-reset" style="padding: 8px 16px; background: #f5f5f5; border: none; border-radius: 4px; cursor: pointer;">
           Reset to Defaults
@@ -684,6 +981,17 @@ class FSHConfigPanel {
         const errorReporter = new FSHErrorReporter(config, metrics);
         errorReporter.clearHistory();
         alert('Error history cleared.');
+      }
+    });
+
+    // Control panel button
+    document.getElementById('fsh-open-control-panel').addEventListener('click', () => {
+      overlay.remove();
+      if (window.FSHControlPanel) {
+        window.FSHControlPanel.showControlPanel();
+      } else {
+        const controlPanel = new FSHControlPanel();
+        controlPanel.showControlPanel();
       }
     });
 
@@ -1014,10 +1322,15 @@ async function initializeFSH() {
     const loader = new FSHLoader(config);
     const gmInfo = loader.getGMInfo();
 
+    // Initialize control panel
+    const controlPanel = new FSHControlPanel();
+    controlPanel.initialize();
+
     // Make config accessible globally for debugging
     if (config.get('debugMode')) {
       window.FSHConfig = config;
       window.FSHMetrics = loader.metrics;
+      window.FSHControlPanel = controlPanel;
     }
 
     const success = await loader.loadModule(gmInfo);
@@ -1049,6 +1362,7 @@ function injectScript() {
           ${FSHMetrics.toString()}
           ${FSHErrorReporter.toString()}
           ${FSHStatusIndicator.toString()}
+          ${FSHControlPanel.toString()}
           ${FSHConfigPanel.toString()}
           ${FSHLoader.toString()}
 

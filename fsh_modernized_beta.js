@@ -757,7 +757,6 @@ class FSHStatusIndicator {
     const menuItems = [
       { label: '⚙️ Configuration', action: () => this.showConfigPanel() },
       { label: '🛡️ Toggle Buff Panel', action: () => this.togglePanel('fsh-buff-panel') },
-      { label: '📊 Toggle Resource Panel', action: () => this.togglePanel('fsh-resource-panel') },
       { label: '⚔️ Toggle Quest Panel', action: () => this.togglePanel('fsh-quest-panel') },
       { label: '🏰 Toggle Guild Quick Actions', action: () => this.togglePanel('fsh-quick-actions') },
       { label: '⚔️ Toggle GvG Tracker', action: () => this.togglePanel('fsh-gvg-panel') },
@@ -851,7 +850,7 @@ class FSHStatusIndicator {
 
   toggleAllOverlays() {
     // Toggle all FSH panels
-    const panelIds = ['fsh-buff-panel', 'fsh-resource-panel', 'fsh-quest-panel', 'fsh-quick-actions', 'fsh-gvg-panel', 'fsh-scout-tower-btn'];
+    const panelIds = ['fsh-buff-panel', 'fsh-quest-panel', 'fsh-quick-actions', 'fsh-gvg-panel', 'fsh-scout-tower-btn'];
 
     this.overlaysVisible = !this.overlaysVisible;
 

@@ -11,7 +11,7 @@
 // @exclude        https://wiki.fallensword.com/*
 // @exclude        https://www.fallensword.com/app.php*
 // @exclude        https://www.fallensword.com/fetchdata.php*
-// @version        1525-beta-2
+// @version        1525-beta-3
 // @downloadURL    https://fallenswordhelper.github.io/fallenswordhelper/Releases/Beta/fallenswordhelper-beta.user.js
 // @grant          none
 // @run-at         document-body
@@ -161,6 +161,9 @@ class FSHErrorReporter {
     this.metrics = metrics;
     this.errors = this.loadErrors();
     this.maxStoredErrors = 10;
+
+    // Install HTTP interceptors to capture 500 errors
+    this.installHttpInterceptors();
   }
 
   loadErrors() {
@@ -192,7 +195,8 @@ class FSHErrorReporter {
       stack: error.stack,
       context: context,
       url: window.location.href,
-      userAgent: navigator.userAgent
+      userAgent: navigator.userAgent,
+      errorType: context.errorType || 'unknown'
     };
 
     this.errors.push(errorRecord);
@@ -203,10 +207,189 @@ class FSHErrorReporter {
     }
   }
 
+  // Record HTTP error with full response details
+  recordHttpError(response, requestUrl, method = 'GET', requestBody = null) {
+    const errorRecord = {
+      timestamp: new Date().toISOString(),
+      message: `HTTP ${response.status} Error: ${response.statusText || 'Server Error'}`,
+      errorType: 'http_500',
+      url: window.location.href,
+      userAgent: navigator.userAgent,
+      httpDetails: {
+        status: response.status,
+        statusText: response.statusText,
+        requestUrl: requestUrl,
+        method: method,
+        requestBody: requestBody,
+        responseHeaders: {},
+        responseBody: null
+      }
+    };
+
+    // Capture response headers
+    if (response.headers) {
+      if (typeof response.headers.forEach === 'function') {
+        // Fetch API Headers
+        response.headers.forEach((value, key) => {
+          errorRecord.httpDetails.responseHeaders[key] = value;
+        });
+      } else if (typeof response.getAllResponseHeaders === 'function') {
+        // XMLHttpRequest
+        const headersString = response.getAllResponseHeaders();
+        headersString.split('\r\n').forEach(line => {
+          const parts = line.split(': ');
+          if (parts.length === 2) {
+            errorRecord.httpDetails.responseHeaders[parts[0]] = parts[1];
+          }
+        });
+      }
+    }
+
+    // Try to capture response body
+    const captureBody = async () => {
+      try {
+        if (response.text && typeof response.text === 'function') {
+          // For fetch Response, clone first to avoid consuming the body
+          const clonedResponse = response.clone ? response.clone() : response;
+          const text = await clonedResponse.text();
+          errorRecord.httpDetails.responseBody = text.substring(0, 10000); // Limit to 10KB
+        } else if (response.responseText) {
+          // For XMLHttpRequest
+          errorRecord.httpDetails.responseBody = response.responseText.substring(0, 10000);
+        }
+      } catch (error) {
+        errorRecord.httpDetails.responseBody = `[Could not capture response body: ${error.message}]`;
+      } finally {
+        this.errors.push(errorRecord);
+        this.saveErrors();
+
+        if (this.config.get('debugMode')) {
+          console.error('FSH: HTTP 500 Error recorded:', errorRecord);
+        }
+
+        // Show notification for HTTP 500 errors
+        this.showHttp500Notification(errorRecord);
+      }
+    };
+
+    captureBody();
+  }
+
+  // Show notification when HTTP 500 error is captured
+  showHttp500Notification(errorRecord) {
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 15px 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+      z-index: 10001;
+      max-width: 400px;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 13px;
+      line-height: 1.5;
+      cursor: pointer;
+      transition: transform 0.2s;
+    `;
+
+    notification.innerHTML = `
+      <div style="font-weight: bold; margin-bottom: 5px; font-size: 14px;">⚠️ Server Error Detected</div>
+      <div style="opacity: 0.9; margin-bottom: 10px;">
+        Nginx 500 error captured from:<br/>
+        <code style="background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 3px; font-size: 11px; word-break: break-all;">
+          ${errorRecord.httpDetails.requestUrl}
+        </code>
+      </div>
+      <div style="font-size: 11px; opacity: 0.8; border-top: 1px solid rgba(255,255,255,0.3); padding-top: 8px; margin-top: 8px;">
+        Click to view details and report to developers
+      </div>
+    `;
+
+    notification.addEventListener('mouseenter', () => {
+      notification.style.transform = 'scale(1.02)';
+    });
+
+    notification.addEventListener('mouseleave', () => {
+      notification.style.transform = 'scale(1)';
+    });
+
+    notification.addEventListener('click', () => {
+      notification.remove();
+      this.showReportDialog(new Error(errorRecord.message), { httpError: errorRecord });
+    });
+
+    document.body.appendChild(notification);
+
+    // Auto-remove after 15 seconds
+    setTimeout(() => {
+      if (notification.parentElement) {
+        notification.style.opacity = '0';
+        notification.style.transform = 'translateX(450px)';
+        setTimeout(() => notification.remove(), 300);
+      }
+    }, 15000);
+  }
+
+  // Install HTTP interceptors to capture 500 errors
+  installHttpInterceptors() {
+    const self = this;
+
+    // Intercept fetch API
+    if (typeof window.fetch !== 'undefined') {
+      const originalFetch = window.fetch;
+      window.fetch = async function(...args) {
+        const response = await originalFetch.apply(this, args);
+
+        // Check for 500 status code
+        if (response.status >= 500 && response.status < 600) {
+          const url = typeof args[0] === 'string' ? args[0] : args[0].url;
+          const method = args[1]?.method || 'GET';
+          const body = args[1]?.body || null;
+
+          self.recordHttpError(response, url, method, body);
+        }
+
+        return response;
+      };
+    }
+
+    // Intercept XMLHttpRequest
+    if (typeof XMLHttpRequest !== 'undefined') {
+      const originalOpen = XMLHttpRequest.prototype.open;
+      const originalSend = XMLHttpRequest.prototype.send;
+
+      XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+        this._fsh_method = method;
+        this._fsh_url = url;
+        return originalOpen.apply(this, [method, url, ...rest]);
+      };
+
+      XMLHttpRequest.prototype.send = function(body) {
+        this._fsh_requestBody = body;
+
+        this.addEventListener('load', function() {
+          if (this.status >= 500 && this.status < 600) {
+            self.recordHttpError(this, this._fsh_url, this._fsh_method, this._fsh_requestBody);
+          }
+        });
+
+        return originalSend.apply(this, arguments);
+      };
+    }
+
+    if (this.config.get('debugMode')) {
+      console.log('FSH: HTTP interceptors installed for 500 error detection');
+    }
+  }
+
   getSystemInfo() {
     const stats = this.metrics.getStats();
     return {
-      version: '1525-beta-2',
+      version: '1525-beta-3',
       timestamp: new Date().toISOString(),
       url: window.location.href,
       userAgent: navigator.userAgent,
@@ -233,7 +416,7 @@ class FSHErrorReporter {
 
     let report = `# FSH Beta Error Report\n\n`;
     report += `**Generated:** ${systemInfo.timestamp}\n`;
-    report += `**Version:** ${systemInfo.version}\n\n`;
+    report += `**Version:** ${systemInfo.version} (with Nginx 500 error capture)\n\n`;
 
     report += `## System Information\n`;
     report += `- **Browser:** ${systemInfo.userAgent}\n`;
@@ -258,11 +441,48 @@ class FSHErrorReporter {
     report += `- **Network Errors:** ${systemInfo.metrics.networkErrors}\n`;
     report += `- **Timeout Errors:** ${systemInfo.metrics.timeoutErrors}\n\n`;
 
-    if (systemInfo.recentErrors.length > 0) {
-      report += `## Recent Errors\n`;
-      systemInfo.recentErrors.forEach((err, index) => {
+    // Separate HTTP 500 errors from other errors
+    const http500Errors = systemInfo.recentErrors.filter(err => err.errorType === 'http_500');
+    const otherErrors = systemInfo.recentErrors.filter(err => err.errorType !== 'http_500');
+
+    // Show HTTP 500 errors prominently
+    if (http500Errors.length > 0) {
+      report += `## 🚨 Nginx 500 Errors (Server Errors)\n\n`;
+      report += `**${http500Errors.length} server error(s) detected**\n\n`;
+      http500Errors.forEach((err, index) => {
+        report += `\n### HTTP 500 Error ${index + 1}\n`;
+        report += `- **Time:** ${err.timestamp}\n`;
+        report += `- **Status:** ${err.httpDetails.status} ${err.httpDetails.statusText}\n`;
+        report += `- **Request URL:** ${err.httpDetails.requestUrl}\n`;
+        report += `- **Method:** ${err.httpDetails.method}\n`;
+        report += `- **Page URL:** ${err.url}\n`;
+
+        if (err.httpDetails.requestBody) {
+          report += `- **Request Body:** ${err.httpDetails.requestBody}\n`;
+        }
+
+        if (err.httpDetails.responseHeaders && Object.keys(err.httpDetails.responseHeaders).length > 0) {
+          report += `\n**Response Headers:**\n\`\`\`\n`;
+          Object.entries(err.httpDetails.responseHeaders).forEach(([key, value]) => {
+            report += `${key}: ${value}\n`;
+          });
+          report += `\`\`\`\n`;
+        }
+
+        if (err.httpDetails.responseBody) {
+          report += `\n**Response Body (First 10KB):**\n\`\`\`\n${err.httpDetails.responseBody}\n\`\`\`\n`;
+        }
+      });
+      report += `\n`;
+    }
+
+    // Show other errors
+    if (otherErrors.length > 0) {
+      report += `## Other Recent Errors\n`;
+      otherErrors.forEach((err, index) => {
         report += `\n### Error ${index + 1}\n`;
         report += `- **Time:** ${err.timestamp}\n`;
+        report += `- **Type:** ${err.errorType || 'unknown'}\n`;
         report += `- **Message:** ${err.message}\n`;
         if (err.context && Object.keys(err.context).length > 0) {
           report += `- **Context:** ${JSON.stringify(err.context)}\n`;
@@ -1124,7 +1344,7 @@ class FSHLoader {
       return typeof GM_info !== 'undefined' ? GM_info : {
         script: {
           name: 'FallenSwordHelper Beta',
-          version: '1525-beta-1'
+          version: '1525-beta-3'
         },
         userAgent: navigator.userAgent
       };
@@ -1133,7 +1353,7 @@ class FSHLoader {
       return {
         script: {
           name: 'FallenSwordHelper Beta',
-          version: '1525-beta-1'
+          version: '1525-beta-3'
         },
         userAgent: navigator.userAgent
       };
@@ -1218,7 +1438,7 @@ function injectScript() {
 
     script.textContent = scriptContent;
     script.setAttribute('data-fsh-injected', 'true');
-    script.setAttribute('data-fsh-version', '1525-beta-2');
+    script.setAttribute('data-fsh-version', '1525-beta-3');
 
     // Add error handling for script injection
     script.onerror = function(error) {

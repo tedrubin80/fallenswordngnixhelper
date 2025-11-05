@@ -599,7 +599,7 @@ class FSHGuildHelper {
         <button class="fsh-filter-btn custombutton" data-filter="affordable" style="font-size: 11px;">Affordable</button>
       </div>
       <div style="margin-top: 10px;">
-        <label style="margin-right: 10px;">Sort by:</label>
+        <label for="fsh-store-sort" style="margin-right: 10px;">Sort by:</label>
         <select id="fsh-store-sort" class="customselect" style="padding: 5px;">
           <option value="default">Default</option>
           <option value="price-asc">Price (Low to High)</option>

@@ -698,7 +698,34 @@ class FSHStatusIndicator {
       transition: all 0.3s ease;
       cursor: pointer;
       max-width: 250px;
+      position: relative;
     `;
+
+    // Add green indicator dot to show menu availability
+    const menuIndicator = document.createElement('div');
+    menuIndicator.style.cssText = `
+      position: absolute;
+      top: -3px;
+      right: -3px;
+      width: 10px;
+      height: 10px;
+      background: #44ff44;
+      border-radius: 50%;
+      border: 2px solid white;
+      box-shadow: 0 0 5px rgba(68, 255, 68, 0.5);
+      animation: pulse 2s infinite;
+    `;
+    this.indicator.appendChild(menuIndicator);
+
+    // Add pulse animation
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes pulse {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.1); opacity: 0.8; }
+      }
+    `;
+    document.head.appendChild(style);
 
     document.body.appendChild(this.indicator);
 
@@ -733,6 +760,8 @@ class FSHStatusIndicator {
       { label: '📊 Toggle Resource Panel', action: () => this.togglePanel('fsh-resource-panel') },
       { label: '⚔️ Toggle Quest Panel', action: () => this.togglePanel('fsh-quest-panel') },
       { label: '🏰 Toggle Guild Quick Actions', action: () => this.togglePanel('fsh-quick-actions') },
+      { label: '⚔️ Toggle GvG Tracker', action: () => this.togglePanel('fsh-gvg-panel') },
+      { label: '🗼 Toggle Scout Tower Button', action: () => this.togglePanel('fsh-scout-tower-btn') },
       { separator: true },
       { label: `👁️ ${this.overlaysVisible ? 'Hide' : 'Show'} All Overlays`, action: () => this.toggleAllOverlays(), id: 'toggle-overlays' },
       { separator: true },
@@ -822,7 +851,7 @@ class FSHStatusIndicator {
 
   toggleAllOverlays() {
     // Toggle all FSH panels
-    const panelIds = ['fsh-buff-panel', 'fsh-resource-panel', 'fsh-quest-panel', 'fsh-quick-actions'];
+    const panelIds = ['fsh-buff-panel', 'fsh-resource-panel', 'fsh-quest-panel', 'fsh-quick-actions', 'fsh-gvg-panel', 'fsh-scout-tower-btn'];
 
     this.overlaysVisible = !this.overlaysVisible;
 

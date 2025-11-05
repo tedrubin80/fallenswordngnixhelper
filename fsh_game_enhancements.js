@@ -637,6 +637,7 @@ class FSHGuildHelper {
       max-width: 350px;
       max-height: 400px;
       overflow-y: auto;
+      display: none;
     `;
 
     panel.innerHTML = `
@@ -894,6 +895,7 @@ class FSHGuildHelper {
       top: 20px;
       left: 20px;
       z-index: 9999;
+      display: none;
     `;
 
     navigationPanel.innerHTML = `
@@ -1380,6 +1382,7 @@ class FSHQoLFeatures {
       z-index: 9998;
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       font-size: 11px;
+      display: none;
     `;
 
     quickActionsPanel.innerHTML = `

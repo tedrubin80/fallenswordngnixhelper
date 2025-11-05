@@ -111,8 +111,9 @@ class FSHDataParser {
 // 2. BUFF MANAGEMENT SYSTEM
 // ===================================================================
 class FSHBuffManager {
-  constructor(dataParser) {
+  constructor(dataParser, settings) {
     this.dataParser = dataParser;
+    this.settings = settings;
     this.buffs = [];
     this.warningThresholds = [300, 60]; // 5min, 1min in seconds
     this.notificationShown = new Set();
@@ -165,6 +166,11 @@ class FSHBuffManager {
   }
 
   showBuffWarning(buff, timeRemaining) {
+    // Check if buff warnings are enabled in settings
+    if (this.settings && !this.settings.get('enableBuffWarnings')) {
+      return;
+    }
+
     const minutes = Math.floor(timeRemaining / 60);
     const seconds = timeRemaining % 60;
     const timeText = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
@@ -280,8 +286,9 @@ class FSHBuffManager {
 // 3. RESOURCE TRACKING
 // ===================================================================
 class FSHResourceTracker {
-  constructor(dataParser) {
+  constructor(dataParser, settings) {
     this.dataParser = dataParser;
+    this.settings = settings;
     this.history = {
       stamina: [],
       gold: [],
@@ -437,8 +444,9 @@ class FSHResourceTracker {
 // 4. EQUIPMENT ASSISTANT
 // ===================================================================
 class FSHEquipmentAssistant {
-  constructor(dataParser) {
+  constructor(dataParser, settings) {
     this.dataParser = dataParser;
+    this.settings = settings;
     this.durabilityThreshold = 50; // Alert when below 50%
   }
 
@@ -509,8 +517,9 @@ class FSHEquipmentAssistant {
 // 5. GUILD HELPER - GvG, Guild Store, Scout Tower
 // ===================================================================
 class FSHGuildHelper {
-  constructor(dataParser) {
+  constructor(dataParser, settings) {
     this.dataParser = dataParser;
+    this.settings = settings;
     this.guildMembers = [];
     this.gvgData = {
       conflicts: [],
@@ -526,8 +535,16 @@ class FSHGuildHelper {
     this.parseGuildData();
     this.enhanceGuildUI();
     this.enhanceGuildStore();
-    this.addScoutTowerButton();
-    this.trackGvGConflicts();
+
+    // Only add Scout Tower button if enabled in settings
+    if (this.settings && this.settings.get('showScoutTowerButton')) {
+      this.addScoutTowerButton();
+    }
+
+    // Only track GvG if panel is enabled
+    if (this.settings && this.settings.get('showGvGPanel')) {
+      this.trackGvGConflicts();
+    }
 
     // Periodic updates
     setInterval(() => this.parseGuildData(), 10000);
@@ -941,8 +958,9 @@ class FSHGuildHelper {
 // 6. QUEST & EVENT TRACKER
 // ===================================================================
 class FSHQuestTracker {
-  constructor(dataParser) {
+  constructor(dataParser, settings) {
     this.dataParser = dataParser;
+    this.settings = settings;
     this.dailyQuest = null;
     this.globalEvent = null;
   }
@@ -1303,15 +1321,24 @@ class FSHMarketAnalyzer {
 // 10. QUALITY OF LIFE FEATURES
 // ===================================================================
 class FSHQoLFeatures {
-  constructor(dataParser) {
+  constructor(dataParser, settings) {
     this.dataParser = dataParser;
+    this.settings = settings;
   }
 
   initialize() {
-    this.addAutoRefresh();
+    if (this.settings && this.settings.get('autoRefreshActions')) {
+      this.addAutoRefresh();
+    }
     this.enhanceKeyboardShortcuts();
-    this.addQuickActions();
-    this.addSoundNotifications();
+
+    if (this.settings && this.settings.get('showQuickActions')) {
+      this.addQuickActions();
+    }
+
+    if (this.settings && this.settings.get('enableSoundNotifications')) {
+      this.addSoundNotifications();
+    }
   }
 
   addAutoRefresh() {
@@ -1429,18 +1456,214 @@ class FSHQoLFeatures {
 }
 
 // ===================================================================
+// SETTINGS MANAGER - Manages user preferences for enhancements
+// ===================================================================
+class FSHSettings {
+  constructor() {
+    this.defaults = {
+      showGvGPanel: true,
+      showBuffPanel: true,
+      showResourcePanel: true,
+      showQuestPanel: true,
+      showQuickActions: true,
+      showScoutTowerButton: true,
+      enableBuffWarnings: true,
+      enableDurabilityWarnings: true,
+      enableSoundNotifications: false,
+      autoRefreshActions: false
+    };
+    this.settings = this.loadSettings();
+  }
+
+  loadSettings() {
+    try {
+      const stored = localStorage.getItem('fsh_enhancement_settings');
+      if (stored) {
+        return { ...this.defaults, ...JSON.parse(stored) };
+      }
+    } catch (error) {
+      console.error('FSH: Could not load settings:', error);
+    }
+    return { ...this.defaults };
+  }
+
+  saveSettings() {
+    try {
+      localStorage.setItem('fsh_enhancement_settings', JSON.stringify(this.settings));
+    } catch (error) {
+      console.error('FSH: Could not save settings:', error);
+    }
+  }
+
+  get(key) {
+    return this.settings[key] !== undefined ? this.settings[key] : this.defaults[key];
+  }
+
+  set(key, value) {
+    this.settings[key] = value;
+    this.saveSettings();
+  }
+
+  createSettingsPanel() {
+    const panel = document.createElement('div');
+    panel.id = 'fsh-settings-panel';
+    panel.style.cssText = `
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(20, 20, 20, 0.98);
+      color: white;
+      padding: 25px;
+      border-radius: 12px;
+      border: 3px solid #667eea;
+      z-index: 99999;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 13px;
+      min-width: 450px;
+      max-height: 80vh;
+      overflow-y: auto;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+      display: none;
+    `;
+
+    panel.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #667eea; padding-bottom: 15px;">
+        <h2 style="margin: 0; color: #667eea; font-size: 20px;">⚙️ FSH Enhancement Settings</h2>
+        <button id="fsh-settings-close" style="background: #ff4444; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 14px;">✕</button>
+      </div>
+
+      <div style="margin-bottom: 25px;">
+        <h3 style="color: #ffd700; margin: 0 0 12px 0; font-size: 16px; border-bottom: 1px solid #444; padding-bottom: 8px;">UI Panels</h3>
+        <label style="display: block; margin-bottom: 10px; cursor: pointer; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 5px; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">
+          <input type="checkbox" id="setting-showGvGPanel" ${this.get('showGvGPanel') ? 'checked' : ''}>
+          <strong>GvG Tracker Panel</strong> - Show conflict tracking panel
+        </label>
+        <label style="display: block; margin-bottom: 10px; cursor: pointer; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 5px; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">
+          <input type="checkbox" id="setting-showBuffPanel" ${this.get('showBuffPanel') ? 'checked' : ''}>
+          <strong>Buff Panel</strong> - Show active buffs panel
+        </label>
+        <label style="display: block; margin-bottom: 10px; cursor: pointer; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 5px; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">
+          <input type="checkbox" id="setting-showResourcePanel" ${this.get('showResourcePanel') ? 'checked' : ''}>
+          <strong>Resource Tracker Panel</strong> - Show resource tracking panel
+        </label>
+        <label style="display: block; margin-bottom: 10px; cursor: pointer; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 5px; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">
+          <input type="checkbox" id="setting-showQuestPanel" ${this.get('showQuestPanel') ? 'checked' : ''}>
+          <strong>Quest Tracker Panel</strong> - Show quest tracking panel
+        </label>
+        <label style="display: block; margin-bottom: 10px; cursor: pointer; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 5px; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">
+          <input type="checkbox" id="setting-showQuickActions" ${this.get('showQuickActions') ? 'checked' : ''}>
+          <strong>Quick Actions Panel</strong> - Show quick actions panel
+        </label>
+        <label style="display: block; margin-bottom: 10px; cursor: pointer; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 5px; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">
+          <input type="checkbox" id="setting-showScoutTowerButton" ${this.get('showScoutTowerButton') ? 'checked' : ''}>
+          <strong>Scout Tower Button</strong> - Show Scout Tower quick button
+        </label>
+      </div>
+
+      <div style="margin-bottom: 25px;">
+        <h3 style="color: #ffd700; margin: 0 0 12px 0; font-size: 16px; border-bottom: 1px solid #444; padding-bottom: 8px;">Notifications</h3>
+        <label style="display: block; margin-bottom: 10px; cursor: pointer; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 5px; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">
+          <input type="checkbox" id="setting-enableBuffWarnings" ${this.get('enableBuffWarnings') ? 'checked' : ''}>
+          <strong>Buff Expiration Warnings</strong> - Alert when buffs expire soon
+        </label>
+        <label style="display: block; margin-bottom: 10px; cursor: pointer; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 5px; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">
+          <input type="checkbox" id="setting-enableDurabilityWarnings" ${this.get('enableDurabilityWarnings') ? 'checked' : ''}>
+          <strong>Low Durability Warnings</strong> - Alert when equipment durability is low
+        </label>
+        <label style="display: block; margin-bottom: 10px; cursor: pointer; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 5px; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">
+          <input type="checkbox" id="setting-enableSoundNotifications" ${this.get('enableSoundNotifications') ? 'checked' : ''}>
+          <strong>Sound Notifications</strong> - Play sounds for alerts
+        </label>
+      </div>
+
+      <div style="margin-bottom: 20px;">
+        <h3 style="color: #ffd700; margin: 0 0 12px 0; font-size: 16px; border-bottom: 1px solid #444; padding-bottom: 8px;">Other Features</h3>
+        <label style="display: block; margin-bottom: 10px; cursor: pointer; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 5px; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">
+          <input type="checkbox" id="setting-autoRefreshActions" ${this.get('autoRefreshActions') ? 'checked' : ''}>
+          <strong>Auto-Refresh Actions</strong> - Automatically refresh action list
+        </label>
+      </div>
+
+      <div style="display: flex; gap: 10px; margin-top: 20px; border-top: 2px solid #444; padding-top: 20px;">
+        <button id="fsh-settings-save" style="flex: 1; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 12px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+          💾 Save & Apply
+        </button>
+        <button id="fsh-settings-reset" style="flex: 1; background: #666; color: white; border: none; padding: 12px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+          🔄 Reset to Defaults
+        </button>
+      </div>
+
+      <div style="margin-top: 15px; text-align: center; font-size: 11px; color: #888;">
+        Changes will take effect immediately. Refresh the page if needed.
+      </div>
+    `;
+
+    document.body.appendChild(panel);
+
+    // Event listeners
+    document.getElementById('fsh-settings-close').addEventListener('click', () => {
+      panel.style.display = 'none';
+    });
+
+    document.getElementById('fsh-settings-save').addEventListener('click', () => {
+      this.saveSettingsFromPanel();
+      panel.style.display = 'none';
+      location.reload(); // Reload to apply changes
+    });
+
+    document.getElementById('fsh-settings-reset').addEventListener('click', () => {
+      if (confirm('Reset all settings to defaults? This will reload the page.')) {
+        this.settings = { ...this.defaults };
+        this.saveSettings();
+        location.reload();
+      }
+    });
+
+    return panel;
+  }
+
+  saveSettingsFromPanel() {
+    const settingKeys = [
+      'showGvGPanel', 'showBuffPanel', 'showResourcePanel', 'showQuestPanel',
+      'showQuickActions', 'showScoutTowerButton', 'enableBuffWarnings',
+      'enableDurabilityWarnings', 'enableSoundNotifications', 'autoRefreshActions'
+    ];
+
+    settingKeys.forEach(key => {
+      const checkbox = document.getElementById(`setting-${key}`);
+      if (checkbox) {
+        this.set(key, checkbox.checked);
+      }
+    });
+  }
+
+  showSettingsPanel() {
+    let panel = document.getElementById('fsh-settings-panel');
+    if (!panel) {
+      panel = this.createSettingsPanel();
+    }
+    panel.style.display = 'block';
+  }
+}
+
+// ===================================================================
 // MAIN CONTROLLER - Initializes all enhancements
 // ===================================================================
 class FSHEnhancementController {
   constructor() {
     this.modules = {};
     this.enabled = true;
+    this.settings = new FSHSettings();
   }
 
   async initialize() {
     if (!this.enabled) return;
 
     console.log('FSH: Initializing Game Enhancements...');
+
+    // Add settings button
+    this.addSettingsButton();
 
     // Initialize data parser first
     this.modules.dataParser = new FSHDataParser();
@@ -1450,21 +1673,29 @@ class FSHEnhancementController {
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     // Initialize all other modules
-    this.modules.buffManager = new FSHBuffManager(this.modules.dataParser);
+    this.modules.buffManager = new FSHBuffManager(this.modules.dataParser, this.settings);
     this.modules.buffManager.initialize();
-    this.modules.buffManager.createBuffPanel();
+    if (this.settings.get('showBuffPanel')) {
+      this.modules.buffManager.createBuffPanel();
+    }
 
-    this.modules.resourceTracker = new FSHResourceTracker(this.modules.dataParser);
-    this.modules.resourceTracker.initialize();
+    this.modules.resourceTracker = new FSHResourceTracker(this.modules.dataParser, this.settings);
+    if (this.settings.get('showResourcePanel')) {
+      this.modules.resourceTracker.initialize();
+    }
 
-    this.modules.equipmentAssistant = new FSHEquipmentAssistant(this.modules.dataParser);
-    this.modules.equipmentAssistant.initialize();
+    this.modules.equipmentAssistant = new FSHEquipmentAssistant(this.modules.dataParser, this.settings);
+    if (this.settings.get('enableDurabilityWarnings')) {
+      this.modules.equipmentAssistant.initialize();
+    }
 
-    this.modules.guildHelper = new FSHGuildHelper(this.modules.dataParser);
+    this.modules.guildHelper = new FSHGuildHelper(this.modules.dataParser, this.settings);
     this.modules.guildHelper.initialize();
 
-    this.modules.questTracker = new FSHQuestTracker(this.modules.dataParser);
-    this.modules.questTracker.initialize();
+    this.modules.questTracker = new FSHQuestTracker(this.modules.dataParser, this.settings);
+    if (this.settings.get('showQuestPanel')) {
+      this.modules.questTracker.initialize();
+    }
 
     this.modules.combatEnhancer = new FSHCombatEnhancer(this.modules.dataParser);
     this.modules.combatEnhancer.initialize();
@@ -1475,13 +1706,58 @@ class FSHEnhancementController {
     this.modules.marketAnalyzer = new FSHMarketAnalyzer(this.modules.dataParser);
     this.modules.marketAnalyzer.initialize();
 
-    this.modules.qolFeatures = new FSHQoLFeatures(this.modules.dataParser);
-    this.modules.qolFeatures.initialize();
+    this.modules.qolFeatures = new FSHQoLFeatures(this.modules.dataParser, this.settings);
+    if (this.settings.get('showQuickActions') || this.settings.get('autoRefreshActions')) {
+      this.modules.qolFeatures.initialize();
+    }
 
     console.log('FSH: All enhancements initialized successfully!');
 
     // Make controller globally accessible for debugging
     window.FSHEnhancements = this;
+  }
+
+  addSettingsButton() {
+    // Create settings button in top-right corner
+    const settingsBtn = document.createElement('div');
+    settingsBtn.id = 'fsh-settings-btn';
+    settingsBtn.style.cssText = `
+      position: fixed;
+      top: 70px;
+      right: 20px;
+      z-index: 9999;
+      cursor: pointer;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+      transition: transform 0.2s, box-shadow 0.2s;
+    `;
+
+    settingsBtn.innerHTML = '⚙️';
+    settingsBtn.title = 'FSH Enhancement Settings';
+
+    settingsBtn.addEventListener('mouseover', () => {
+      settingsBtn.style.transform = 'scale(1.1) rotate(90deg)';
+      settingsBtn.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.5)';
+    });
+
+    settingsBtn.addEventListener('mouseout', () => {
+      settingsBtn.style.transform = 'scale(1) rotate(0deg)';
+      settingsBtn.style.boxShadow = '0 4px 15px rgba(0,0,0,0.3)';
+    });
+
+    settingsBtn.addEventListener('click', () => {
+      this.settings.showSettingsPanel();
+    });
+
+    document.body.appendChild(settingsBtn);
   }
 
   getModule(name) {

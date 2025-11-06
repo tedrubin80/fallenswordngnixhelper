@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name           FallenSwordHelper Beta
+// @name           FallenSwordHelper Integrated
 // @namespace      terrasoft.gr
-// @description    Fallen Sword Helper - BETA version with enhanced features, user configuration, and improved game integration
+// @description    Fallen Sword Helper - Integrated version with working GvG and Scout Tower features
 // @include        https://www.fallensword.com/*
 // @include        https://guide.fallensword.com/*
 // @include        https://fallensword.com/*
@@ -11,13 +11,13 @@
 // @exclude        https://wiki.fallensword.com/*
 // @exclude        https://www.fallensword.com/app.php*
 // @exclude        https://www.fallensword.com/fetchdata.php*
-// @version        1525-beta-3
-// @downloadURL    https://fallenswordhelper.github.io/fallenswordhelper/Releases/Beta/fallenswordhelper-beta.user.js
+// @version        1525-integrated
+// @downloadURL    https://fallenswordhelper.github.io/fallenswordhelper/Releases/Current/fallenswordhelper.user.js
 // @grant          none
 // @run-at         document-body
 // ==/UserScript==
 
-// Enhanced configuration manager with persistence
+// Configuration manager with persistence
 class FSHConfig {
   constructor() {
     this.defaults = {
@@ -32,8 +32,13 @@ class FSHConfig {
       initialDelayMin: 0,
       initialDelayMax: 3000,
       cacheEnabled: true,
-      cacheDuration: 3600000, // 1 hour
-      adaptiveRetry: true // Adjust retry strategy based on network conditions
+      cacheDuration: 3600000,
+      adaptiveRetry: true,
+      // Game enhancement toggles
+      enableBuffManager: true,
+      enableGuildHelper: true,
+      enableQuestTracker: true,
+      enableGvGTracker: true
     };
     this.config = this.loadConfig();
   }
@@ -138,541 +143,397 @@ class FSHMetrics {
         : 0
     };
   }
-
-  reset() {
-    this.metrics = {
-      loadAttempts: 0,
-      successfulLoads: 0,
-      failedLoads: 0,
-      totalLoadTime: 0,
-      lastLoadTime: 0,
-      averageLoadTime: 0,
-      networkErrors: 0,
-      timeoutErrors: 0
-    };
-    this.saveMetrics();
-  }
 }
 
-// Error reporter for collecting and submitting bug reports
-class FSHErrorReporter {
-  constructor(config, metrics) {
-    this.config = config;
-    this.metrics = metrics;
-    this.errors = this.loadErrors();
-    this.maxStoredErrors = 10;
-
-    // Install HTTP interceptors to capture 500 errors
-    this.installHttpInterceptors();
-  }
-
-  loadErrors() {
-    try {
-      const stored = localStorage.getItem('fsh_errors');
-      if (stored) {
-        return JSON.parse(stored);
-      }
-    } catch (error) {
-      console.warn('FSH: Could not load error history:', error);
-    }
-    return [];
-  }
-
-  saveErrors() {
-    try {
-      // Keep only the most recent errors
-      const toSave = this.errors.slice(-this.maxStoredErrors);
-      localStorage.setItem('fsh_errors', JSON.stringify(toSave));
-    } catch (error) {
-      console.warn('FSH: Could not save error history:', error);
-    }
-  }
-
-  recordError(error, context = {}) {
-    const errorRecord = {
-      timestamp: new Date().toISOString(),
-      message: error.message,
-      stack: error.stack,
-      context: context,
-      url: window.location.href,
-      userAgent: navigator.userAgent,
-      errorType: context.errorType || 'unknown'
-    };
-
-    this.errors.push(errorRecord);
-    this.saveErrors();
-
-    if (this.config.get('debugMode')) {
-      console.log('FSH: Error recorded:', errorRecord);
-    }
-  }
-
-  // Record HTTP error with full response details
-  recordHttpError(response, requestUrl, method = 'GET', requestBody = null) {
-    const errorRecord = {
-      timestamp: new Date().toISOString(),
-      message: `HTTP ${response.status} Error: ${response.statusText || 'Server Error'}`,
-      errorType: 'http_500',
-      url: window.location.href,
-      userAgent: navigator.userAgent,
-      httpDetails: {
-        status: response.status,
-        statusText: response.statusText,
-        requestUrl: requestUrl,
-        method: method,
-        requestBody: requestBody,
-        responseHeaders: {},
-        responseBody: null
-      }
-    };
-
-    // Capture response headers
-    if (response.headers) {
-      if (typeof response.headers.forEach === 'function') {
-        // Fetch API Headers
-        response.headers.forEach((value, key) => {
-          errorRecord.httpDetails.responseHeaders[key] = value;
-        });
-      } else if (typeof response.getAllResponseHeaders === 'function') {
-        // XMLHttpRequest
-        const headersString = response.getAllResponseHeaders();
-        headersString.split('\r\n').forEach(line => {
-          const parts = line.split(': ');
-          if (parts.length === 2) {
-            errorRecord.httpDetails.responseHeaders[parts[0]] = parts[1];
-          }
-        });
-      }
-    }
-
-    // Try to capture response body
-    const captureBody = async () => {
-      try {
-        if (response.text && typeof response.text === 'function') {
-          // For fetch Response, clone first to avoid consuming the body
-          const clonedResponse = response.clone ? response.clone() : response;
-          const text = await clonedResponse.text();
-          errorRecord.httpDetails.responseBody = text.substring(0, 10000); // Limit to 10KB
-        } else if (response.responseText) {
-          // For XMLHttpRequest
-          errorRecord.httpDetails.responseBody = response.responseText.substring(0, 10000);
-        }
-      } catch (error) {
-        errorRecord.httpDetails.responseBody = `[Could not capture response body: ${error.message}]`;
-      } finally {
-        this.errors.push(errorRecord);
-        this.saveErrors();
-
-        if (this.config.get('debugMode')) {
-          console.error('FSH: HTTP 500 Error recorded:', errorRecord);
-        }
-
-        // Show notification for HTTP 500 errors
-        this.showHttp500Notification(errorRecord);
-      }
-    };
-
-    captureBody();
-  }
-
-  // Show notification when HTTP 500 error is captured
-  showHttp500Notification(errorRecord) {
-    const notification = document.createElement('div');
-    notification.style.cssText = `
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 15px 20px;
-      border-radius: 8px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-      z-index: 10001;
-      max-width: 400px;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      font-size: 13px;
-      line-height: 1.5;
-      cursor: pointer;
-      transition: transform 0.2s;
-    `;
-
-    notification.innerHTML = `
-      <div style="font-weight: bold; margin-bottom: 5px; font-size: 14px;">⚠️ Server Error Detected</div>
-      <div style="opacity: 0.9; margin-bottom: 10px;">
-        Nginx 500 error captured from:<br/>
-        <code style="background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 3px; font-size: 11px; word-break: break-all;">
-          ${errorRecord.httpDetails.requestUrl}
-        </code>
-      </div>
-      <div style="font-size: 11px; opacity: 0.8; border-top: 1px solid rgba(255,255,255,0.3); padding-top: 8px; margin-top: 8px;">
-        Click to view details and report to developers
-      </div>
-    `;
-
-    notification.addEventListener('mouseenter', () => {
-      notification.style.transform = 'scale(1.02)';
-    });
-
-    notification.addEventListener('mouseleave', () => {
-      notification.style.transform = 'scale(1)';
-    });
-
-    notification.addEventListener('click', () => {
-      notification.remove();
-      this.showReportDialog(new Error(errorRecord.message), { httpError: errorRecord });
-    });
-
-    document.body.appendChild(notification);
-
-    // Auto-remove after 15 seconds
-    setTimeout(() => {
-      if (notification.parentElement) {
-        notification.style.opacity = '0';
-        notification.style.transform = 'translateX(450px)';
-        setTimeout(() => notification.remove(), 300);
-      }
-    }, 15000);
-  }
-
-  // Install HTTP interceptors to capture 500 errors
-  installHttpInterceptors() {
-    const self = this;
-
-    // Intercept fetch API
-    if (typeof window.fetch !== 'undefined') {
-      const originalFetch = window.fetch;
-      window.fetch = async function(...args) {
-        const response = await originalFetch.apply(this, args);
-
-        // Check for 500 status code
-        if (response.status >= 500 && response.status < 600) {
-          const url = typeof args[0] === 'string' ? args[0] : args[0].url;
-          const method = args[1]?.method || 'GET';
-          const body = args[1]?.body || null;
-
-          self.recordHttpError(response, url, method, body);
-        }
-
-        return response;
-      };
-    }
-
-    // Intercept XMLHttpRequest
-    if (typeof XMLHttpRequest !== 'undefined') {
-      const originalOpen = XMLHttpRequest.prototype.open;
-      const originalSend = XMLHttpRequest.prototype.send;
-
-      XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-        this._fsh_method = method;
-        this._fsh_url = url;
-        return originalOpen.apply(this, [method, url, ...rest]);
-      };
-
-      XMLHttpRequest.prototype.send = function(body) {
-        this._fsh_requestBody = body;
-
-        this.addEventListener('load', function() {
-          if (this.status >= 500 && this.status < 600) {
-            self.recordHttpError(this, this._fsh_url, this._fsh_method, this._fsh_requestBody);
-          }
-        });
-
-        return originalSend.apply(this, arguments);
-      };
-    }
-
-    if (this.config.get('debugMode')) {
-      console.log('FSH: HTTP interceptors installed for 500 error detection');
-    }
-  }
-
-  getSystemInfo() {
-    const stats = this.metrics.getStats();
-    return {
-      version: '1525-beta-3',
-      timestamp: new Date().toISOString(),
-      url: window.location.href,
-      userAgent: navigator.userAgent,
-      screenResolution: `${window.screen.width}x${window.screen.height}`,
-      viewport: `${window.innerWidth}x${window.innerHeight}`,
-      language: navigator.language,
-      cookiesEnabled: navigator.cookieEnabled,
-      onLine: navigator.onLine,
-      config: {
-        maxRetries: this.config.get('maxRetries'),
-        baseDelay: this.config.get('baseDelay'),
-        timeout: this.config.get('timeout'),
-        debugMode: this.config.get('debugMode'),
-        cacheEnabled: this.config.get('cacheEnabled'),
-        adaptiveRetry: this.config.get('adaptiveRetry')
-      },
-      metrics: stats,
-      recentErrors: this.errors.slice(-5) // Last 5 errors
-    };
-  }
-
-  generateReport(additionalInfo = '') {
-    const systemInfo = this.getSystemInfo();
-
-    let report = `# FSH Beta Error Report\n\n`;
-    report += `**Generated:** ${systemInfo.timestamp}\n`;
-    report += `**Version:** ${systemInfo.version} (with Nginx 500 error capture)\n\n`;
-
-    report += `## System Information\n`;
-    report += `- **Browser:** ${systemInfo.userAgent}\n`;
-    report += `- **Language:** ${systemInfo.language}\n`;
-    report += `- **Screen:** ${systemInfo.screenResolution}\n`;
-    report += `- **Viewport:** ${systemInfo.viewport}\n`;
-    report += `- **Online:** ${systemInfo.onLine}\n`;
-    report += `- **URL:** ${systemInfo.url}\n\n`;
-
-    report += `## Configuration\n`;
-    report += `- **Max Retries:** ${systemInfo.config.maxRetries}\n`;
-    report += `- **Base Delay:** ${systemInfo.config.baseDelay}ms\n`;
-    report += `- **Timeout:** ${systemInfo.config.timeout}ms\n`;
-    report += `- **Debug Mode:** ${systemInfo.config.debugMode}\n`;
-    report += `- **Cache Enabled:** ${systemInfo.config.cacheEnabled}\n`;
-    report += `- **Adaptive Retry:** ${systemInfo.config.adaptiveRetry}\n\n`;
-
-    report += `## Performance Metrics\n`;
-    report += `- **Load Attempts:** ${systemInfo.metrics.loadAttempts}\n`;
-    report += `- **Success Rate:** ${systemInfo.metrics.successRate}%\n`;
-    report += `- **Average Load Time:** ${Math.round(systemInfo.metrics.averageLoadTime)}ms\n`;
-    report += `- **Network Errors:** ${systemInfo.metrics.networkErrors}\n`;
-    report += `- **Timeout Errors:** ${systemInfo.metrics.timeoutErrors}\n\n`;
-
-    // Separate HTTP 500 errors from other errors
-    const http500Errors = systemInfo.recentErrors.filter(err => err.errorType === 'http_500');
-    const otherErrors = systemInfo.recentErrors.filter(err => err.errorType !== 'http_500');
-
-    // Show HTTP 500 errors prominently
-    if (http500Errors.length > 0) {
-      report += `## 🚨 Nginx 500 Errors (Server Errors)\n\n`;
-      report += `**${http500Errors.length} server error(s) detected**\n\n`;
-      http500Errors.forEach((err, index) => {
-        report += `\n### HTTP 500 Error ${index + 1}\n`;
-        report += `- **Time:** ${err.timestamp}\n`;
-        report += `- **Status:** ${err.httpDetails.status} ${err.httpDetails.statusText}\n`;
-        report += `- **Request URL:** ${err.httpDetails.requestUrl}\n`;
-        report += `- **Method:** ${err.httpDetails.method}\n`;
-        report += `- **Page URL:** ${err.url}\n`;
-
-        if (err.httpDetails.requestBody) {
-          report += `- **Request Body:** ${err.httpDetails.requestBody}\n`;
-        }
-
-        if (err.httpDetails.responseHeaders && Object.keys(err.httpDetails.responseHeaders).length > 0) {
-          report += `\n**Response Headers:**\n\`\`\`\n`;
-          Object.entries(err.httpDetails.responseHeaders).forEach(([key, value]) => {
-            report += `${key}: ${value}\n`;
-          });
-          report += `\`\`\`\n`;
-        }
-
-        if (err.httpDetails.responseBody) {
-          report += `\n**Response Body (First 10KB):**\n\`\`\`\n${err.httpDetails.responseBody}\n\`\`\`\n`;
-        }
-      });
-      report += `\n`;
-    }
-
-    // Show other errors
-    if (otherErrors.length > 0) {
-      report += `## Other Recent Errors\n`;
-      otherErrors.forEach((err, index) => {
-        report += `\n### Error ${index + 1}\n`;
-        report += `- **Time:** ${err.timestamp}\n`;
-        report += `- **Type:** ${err.errorType || 'unknown'}\n`;
-        report += `- **Message:** ${err.message}\n`;
-        if (err.context && Object.keys(err.context).length > 0) {
-          report += `- **Context:** ${JSON.stringify(err.context)}\n`;
-        }
-        if (err.stack) {
-          report += `\n**Stack Trace:**\n\`\`\`\n${err.stack}\n\`\`\`\n`;
-        }
-      });
-      report += `\n`;
-    }
-
-    if (additionalInfo) {
-      report += `## Additional Information\n${additionalInfo}\n\n`;
-    }
-
-    report += `---\n`;
-    report += `*This report was automatically generated by FSH Beta Error Reporter*`;
-
-    return report;
-  }
-
-  copyToClipboard(text) {
-    try {
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-      return true;
-    } catch (error) {
-      console.error('FSH: Could not copy to clipboard:', error);
-      return false;
-    }
-  }
-
-  showReportDialog(error = null, context = {}) {
-    const overlay = document.createElement('div');
-    overlay.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0,0,0,0.5);
-      z-index: 10002;
-      display: flex;
-      justify-content: flex-end;
-      align-items: flex-start;
-      padding: 10px;
-    `;
-
-    const dialog = document.createElement('div');
-    dialog.style.cssText = `
-      background: white;
-      padding: 20px;
-      border-radius: 8px;
-      width: 500px;
-      max-width: 90vw;
-      max-height: calc(100vh - 20px);
-      overflow-y: auto;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.3);
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      margin-top: 50px;
-    `;
-
-    if (error) {
-      this.recordError(error, context);
-    }
-
-    dialog.innerHTML = `
-      <h2 style="margin-top: 0; color: #eb3349;">Report an Issue</h2>
-      <p style="color: #666; font-size: 13px; line-height: 1.5;">
-        Help us improve FSH Beta by reporting this issue. The report includes system information,
-        configuration, and recent errors. No personal data is collected.
-      </p>
-
-      <div style="margin: 15px 0;">
-        <label for="fsh-error-description" style="display: block; margin-bottom: 5px; font-weight: bold; font-size: 13px;">
-          Describe what happened (optional):
-        </label>
-        <textarea id="fsh-error-description" placeholder="What were you doing when the error occurred?"
-          style="width: 100%; height: 80px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: inherit; font-size: 12px; resize: vertical;"></textarea>
-      </div>
-
-      <div style="margin: 15px 0;">
-        <label for="fsh-error-expected" style="display: block; margin-bottom: 5px; font-weight: bold; font-size: 13px;">
-          Expected behavior (optional):
-        </label>
-        <textarea id="fsh-error-expected" placeholder="What did you expect to happen?"
-          style="width: 100%; height: 60px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: inherit; font-size: 12px; resize: vertical;"></textarea>
-      </div>
-
-      <div id="fsh-report-status" style="margin: 10px 0; padding: 8px; border-radius: 4px; display: none; font-size: 12px;"></div>
-
-      <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
-        <button id="fsh-report-cancel" style="padding: 8px 16px; background: #f5f5f5; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
-          Cancel
-        </button>
-        <button id="fsh-report-copy" style="padding: 8px 16px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
-          📋 Copy Report
-        </button>
-        <button id="fsh-report-github" style="padding: 8px 16px; background: #24292e; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
-          🐙 Open GitHub Issue
-        </button>
-      </div>
-    `;
-
-    overlay.appendChild(dialog);
-    document.body.appendChild(overlay);
-
-    const showStatus = (message, type = 'info') => {
-      const statusDiv = document.getElementById('fsh-report-status');
-      const colors = {
-        success: '#d4edda',
-        error: '#f8d7da',
-        info: '#d1ecf1'
-      };
-      statusDiv.style.display = 'block';
-      statusDiv.style.background = colors[type] || colors.info;
-      statusDiv.style.color = '#333';
-      statusDiv.textContent = message;
-    };
-
-    // Cancel button
-    document.getElementById('fsh-report-cancel').addEventListener('click', () => {
-      overlay.remove();
-    });
-
-    // Copy report button
-    document.getElementById('fsh-report-copy').addEventListener('click', () => {
-      const description = document.getElementById('fsh-error-description').value;
-      const expected = document.getElementById('fsh-error-expected').value;
-
-      let additionalInfo = '';
-      if (description) additionalInfo += `**What happened:** ${description}\n\n`;
-      if (expected) additionalInfo += `**Expected behavior:** ${expected}\n\n`;
-
-      const report = this.generateReport(additionalInfo);
-
-      if (this.copyToClipboard(report)) {
-        showStatus('✓ Report copied to clipboard!', 'success');
-        setTimeout(() => overlay.remove(), 2000);
-      } else {
-        showStatus('✗ Could not copy to clipboard. Please select and copy manually.', 'error');
-      }
-    });
-
-    // GitHub issue button
-    document.getElementById('fsh-report-github').addEventListener('click', () => {
-      const description = document.getElementById('fsh-error-description').value;
-      const expected = document.getElementById('fsh-error-expected').value;
-
-      let additionalInfo = '';
-      if (description) additionalInfo += `**What happened:** ${description}\n\n`;
-      if (expected) additionalInfo += `**Expected behavior:** ${expected}\n\n`;
-
-      const report = this.generateReport(additionalInfo);
-
-      // Create GitHub issue URL
-      const title = error ? `Bug: ${error.message}` : 'Bug Report from FSH Beta';
-      const body = encodeURIComponent(report);
-      const url = `https://github.com/tedrubin80/fallenswordngnixhelper/issues/new?title=${encodeURIComponent(title)}&body=${body}`;
-
-      window.open(url, '_blank');
-      showStatus('✓ Opening GitHub issue page...', 'success');
-      setTimeout(() => overlay.remove(), 1500);
-    });
-
-    // Close on overlay click
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) {
-        overlay.remove();
-      }
-    });
-  }
-
-  clearHistory() {
-    this.errors = [];
-    this.saveErrors();
-  }
-}
-
-// Status indicator for in-game feedback
-class FSHStatusIndicator {
+// Data Parser - Extracts and processes game data
+class FSHDataParser {
   constructor() {
+    this.gameData = null;
+    this.player = null;
+    this.realm = null;
+    this.updateInterval = 5000;
+  }
+
+  initialize() {
+    this.parseGameData();
+    setInterval(() => this.parseGameData(), this.updateInterval);
+  }
+
+  parseGameData() {
+    try {
+      // Parse initialGameData from global scope
+      if (typeof initialGameData !== 'undefined') {
+        this.gameData = initialGameData;
+        this.player = this.gameData.player || {};
+        this.realm = this.gameData.realm || {};
+      }
+
+      // Parse statbar data from DOM
+      this.parseStatbar();
+
+      // Trigger data update event
+      this.triggerDataUpdate();
+    } catch (error) {
+      console.error('FSH: Error parsing game data:', error);
+    }
+  }
+
+  parseStatbar() {
+    if (!this.player) this.player = {};
+
+    // Parse stamina
+    const staminaText = document.querySelector('#statbar-stamina')?.textContent;
+    if (staminaText) {
+      const match = staminaText.match(/(\d+,?\d*)/);
+      if (match) {
+        this.player.currentStamina = parseInt(match[1].replace(/,/g, ''));
+      }
+    }
+
+    // Parse gold
+    const goldText = document.querySelector('#statbar-gold')?.textContent;
+    if (goldText) {
+      const match = goldText.match(/(\d+,?\d*)/);
+      if (match) {
+        this.player.currentGold = parseInt(match[1].replace(/,/g, ''));
+      }
+    }
+  }
+
+  triggerDataUpdate() {
+    const event = new CustomEvent('fsh:dataUpdate', {
+      detail: {
+        player: this.player,
+        realm: this.realm,
+        gameData: this.gameData
+      }
+    });
+    document.dispatchEvent(event);
+  }
+
+  getPlayer() {
+    return this.player;
+  }
+
+  getRealm() {
+    return this.realm;
+  }
+}
+
+// Guild Helper - GvG, Guild Store, Scout Tower
+class FSHGuildHelper {
+  constructor(dataParser) {
+    this.dataParser = dataParser;
+    this.guildMembers = [];
+    this.gvgData = {
+      conflicts: [],
+      territories: [],
+      points: 0,
+      rank: 0
+    };
+    this.conflictHistory = [];
+  }
+
+  initialize() {
+    console.log('FSH: Initializing Guild Helper');
+    this.loadConflictHistory();
+    this.parseGuildData();
+    this.createGvGPanel();
+    
+    // Periodic updates
+    setInterval(() => this.parseGuildData(), 10000);
+  }
+
+  loadConflictHistory() {
+    try {
+      const stored = localStorage.getItem('fsh_conflict_history');
+      if (stored) {
+        this.conflictHistory = JSON.parse(stored);
+      }
+    } catch (error) {
+      console.error('FSH: Could not load conflict history:', error);
+    }
+  }
+
+  saveConflictHistory() {
+    try {
+      if (this.conflictHistory.length > 100) {
+        this.conflictHistory = this.conflictHistory.slice(-100);
+      }
+      localStorage.setItem('fsh_conflict_history', JSON.stringify(this.conflictHistory));
+    } catch (error) {
+      console.error('FSH: Could not save conflict history:', error);
+    }
+  }
+
+  parseGuildData() {
+    // Parse guild members from minibox
+    const memberElements = document.querySelectorAll('#minibox-guild-members-list .player, .guild-member-link');
+    this.guildMembers = Array.from(memberElements).map(element => {
+      const name = element.textContent.trim();
+      return { name, element };
+    });
+
+    // Parse GvG conflicts if on relevant page
+    if (window.location.href.includes('cmd=guild') || window.location.href.includes('conflict')) {
+      this.parseGvGConflicts();
+    }
+  }
+
+  parseGvGConflicts() {
+    const conflictElements = document.querySelectorAll('.conflict-item, .gvg-conflict, [class*="conflict"]');
+    
+    this.gvgData.conflicts = Array.from(conflictElements).map(element => {
+      const opponentName = element.querySelector('.opponent-name, .guild-name')?.textContent?.trim();
+      const pointsText = element.querySelector('.points, .score')?.textContent;
+      const statusText = element.querySelector('.status')?.textContent;
+
+      return {
+        opponent: opponentName || 'Unknown',
+        points: this.parsePoints(pointsText),
+        status: statusText || 'Active',
+        timestamp: Date.now()
+      };
+    }).filter(conflict => conflict.opponent !== 'Unknown');
+
+    // Add to history
+    this.gvgData.conflicts.forEach(conflict => {
+      if (!this.conflictHistory.find(c => 
+        c.opponent === conflict.opponent && 
+        Math.abs(c.timestamp - conflict.timestamp) < 60000 // Within 1 minute
+      )) {
+        this.conflictHistory.push({...conflict});
+        this.saveConflictHistory();
+      }
+    });
+  }
+
+  parsePoints(text) {
+    if (!text) return 0;
+    const match = text.match(/(\d+)/);
+    return match ? parseInt(match[1]) : 0;
+  }
+
+  createGvGPanel() {
+    // Remove existing panel if present
+    const existingPanel = document.getElementById('fsh-gvg-panel');
+    if (existingPanel) {
+      existingPanel.remove();
+    }
+
+    console.log('FSH: Creating GvG tracking panel');
+    const panel = document.createElement('div');
+    panel.id = 'fsh-gvg-panel';
+    panel.style.cssText = `
+      position: fixed;
+      top: 300px;
+      left: 20px;
+      background: rgba(20, 20, 20, 0.95);
+      color: white;
+      padding: 15px;
+      border-radius: 8px;
+      border: 2px solid #c41e3a;
+      z-index: 9998;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 11px;
+      min-width: 280px;
+      max-width: 350px;
+      max-height: 400px;
+      overflow-y: auto;
+      display: block;
+    `;
+
+    panel.innerHTML = `
+      <div style="font-weight: bold; margin-bottom: 10px; font-size: 14px; color: #ff6b6b;">
+        ⚔️ GvG Tracker
+      </div>
+      <div id="fsh-gvg-stats" style="margin-bottom: 10px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 5px;">
+        <div style="font-size: 10px; opacity: 0.7;">Loading conflict data...</div>
+      </div>
+      <div style="margin-top: 10px;">
+        <button id="fsh-scout-tower-btn" style="width: 100%; margin-bottom: 5px; padding: 8px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">
+          🗼 Scout Tower
+        </button>
+        <button id="fsh-view-conflicts-btn" style="width: 100%; margin-bottom: 5px; padding: 8px; background: #c41e3a; color: white; border: none; border-radius: 4px; cursor: pointer;">
+          View All Conflicts
+        </button>
+        <button id="fsh-guild-advisor-btn" style="width: 100%; padding: 8px; background: #764ba2; color: white; border: none; border-radius: 4px; cursor: pointer;">
+          Guild Advisor
+        </button>
+      </div>
+      <div id="fsh-conflict-history" style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 10px;">
+        <div style="font-weight: bold; margin-bottom: 8px; font-size: 12px;">Recent Conflicts</div>
+        <div id="fsh-conflict-list" style="max-height: 200px; overflow-y: auto;"></div>
+      </div>
+    `;
+
+    document.body.appendChild(panel);
+
+    // Add event listeners for buttons
+    document.getElementById('fsh-scout-tower-btn')?.addEventListener('click', () => {
+      console.log('FSH: Navigating to Scout Tower');
+      window.location.href = 'index.php?cmd=guild&subcmd=scouttower';
+    });
+
+    document.getElementById('fsh-view-conflicts-btn')?.addEventListener('click', () => {
+      window.location.href = 'index.php?cmd=guild&subcmd=conflicts';
+    });
+
+    document.getElementById('fsh-guild-advisor-btn')?.addEventListener('click', () => {
+      window.location.href = 'index.php?cmd=guild&subcmd=advisor';
+    });
+
+    console.log('FSH: GvG panel created with buttons');
+
+    // Start updating the panel
+    setInterval(() => this.updateGvGPanel(), 5000);
+    this.updateGvGPanel();
+  }
+
+  updateGvGPanel() {
+    const statsDiv = document.getElementById('fsh-gvg-stats');
+    const listDiv = document.getElementById('fsh-conflict-list');
+
+    if (!statsDiv || !listDiv) return;
+
+    // Update stats
+    if (this.gvgData.conflicts.length > 0) {
+      const totalPoints = this.gvgData.conflicts.reduce((sum, c) => sum + c.points, 0);
+      statsDiv.innerHTML = `
+        <div style="margin-bottom: 5px;"><strong>Active Conflicts:</strong> ${this.gvgData.conflicts.length}</div>
+        <div><strong>Total Points:</strong> ${totalPoints}</div>
+      `;
+    } else {
+      statsDiv.innerHTML = `<div style="font-size: 10px; opacity: 0.7;">No active conflicts detected</div>`;
+    }
+
+    // Update history list
+    const recentConflicts = this.conflictHistory.slice(-10).reverse();
+    if (recentConflicts.length > 0) {
+      listDiv.innerHTML = recentConflicts.map(conflict => {
+        const timeAgo = this.getTimeAgo(conflict.timestamp);
+        const statusColor = conflict.status === 'Won' ? '#44ff44' : 
+                           conflict.status === 'Lost' ? '#ff4444' : '#ffaa00';
+        
+        return `
+          <div style="margin-bottom: 8px; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; border-left: 3px solid #c41e3a;">
+            <div style="font-weight: bold; color: #ff6b6b;">${conflict.opponent}</div>
+            <div style="font-size: 10px; margin-top: 3px;">
+              <span style="color: #ffd700;">Points: ${conflict.points}</span> •
+              <span style="opacity: 0.7;">${timeAgo}</span>
+            </div>
+            <div style="font-size: 10px; margin-top: 2px; color: ${statusColor};">
+              ${conflict.status}
+            </div>
+          </div>
+        `;
+      }).join('');
+    } else {
+      listDiv.innerHTML = `<div style="font-size: 10px; opacity: 0.6;">No recent conflicts</div>`;
+    }
+  }
+
+  getTimeAgo(timestamp) {
+    const seconds = Math.floor((Date.now() - timestamp) / 1000);
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  }
+}
+
+// Buff Management System
+class FSHBuffManager {
+  constructor(dataParser) {
+    this.dataParser = dataParser;
+    this.buffs = [];
+  }
+
+  initialize() {
+    this.createBuffPanel();
+    this.parseBuffs();
+    document.addEventListener('fsh:dataUpdate', () => this.parseBuffs());
+  }
+
+  parseBuffs() {
+    const player = this.dataParser.getPlayer();
+    if (player && player.buffs) {
+      this.buffs = player.buffs;
+    }
+  }
+
+  createBuffPanel() {
+    const panel = document.createElement('div');
+    panel.id = 'fsh-buff-panel';
+    panel.style.cssText = `
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(0, 0, 0, 0.85);
+      color: white;
+      padding: 15px;
+      border-radius: 8px;
+      z-index: 9998;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 11px;
+      min-width: 200px;
+      display: block;
+    `;
+
+    panel.innerHTML = `
+      <div style="font-weight: bold; margin-bottom: 10px; font-size: 13px;">Active Buffs</div>
+      <div id="fsh-buff-list">No buffs active</div>
+    `;
+
+    document.body.appendChild(panel);
+  }
+}
+
+// Quest Tracker Panel
+class FSHQuestTracker {
+  constructor(dataParser) {
+    this.dataParser = dataParser;
+  }
+
+  initialize() {
+    this.createQuestPanel();
+  }
+
+  createQuestPanel() {
+    const panel = document.createElement('div');
+    panel.id = 'fsh-quest-panel';
+    panel.style.cssText = `
+      position: fixed;
+      top: 100px;
+      right: 20px;
+      background: rgba(0, 0, 0, 0.85);
+      color: white;
+      padding: 15px;
+      border-radius: 8px;
+      z-index: 9998;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 11px;
+      min-width: 200px;
+      display: block;
+    `;
+
+    panel.innerHTML = `
+      <div style="font-weight: bold; margin-bottom: 10px; font-size: 13px;">📜 Quest Tracker</div>
+      <div>Quest tracking coming soon...</div>
+    `;
+
+    document.body.appendChild(panel);
+  }
+}
+
+// Status Indicator with Menu
+class FSHStatusIndicator {
+  constructor(controller) {
+    this.controller = controller;
     this.indicator = null;
-    this.autoHideTimeout = null;
     this.menu = null;
     this.menuOpen = false;
     this.overlaysVisible = true;
@@ -695,13 +556,11 @@ class FSHStatusIndicator {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       font-size: 11px;
       box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-      transition: all 0.3s ease;
       cursor: pointer;
       max-width: 250px;
-      position: relative;
     `;
 
-    // Add green indicator dot to show menu availability
+    // Add green indicator dot
     const menuIndicator = document.createElement('div');
     menuIndicator.style.cssText = `
       position: absolute;
@@ -734,15 +593,18 @@ class FSHStatusIndicator {
     });
 
     this.createMenu();
+    this.update('FSH Integrated Loaded', 'success');
   }
 
   createMenu() {
-    // Remove any existing menu from previous script versions
+    // Remove existing menu if present
     const existingMenu = document.getElementById('fsh-helper-menu');
     if (existingMenu) {
       existingMenu.remove();
     }
 
+    console.log('FSH: Creating enhanced menu');
+    
     this.menu = document.createElement('div');
     this.menu.id = 'fsh-helper-menu';
     this.menu.style.cssText = `
@@ -753,51 +615,43 @@ class FSHStatusIndicator {
       border: 1px solid #ddd;
       border-radius: 6px;
       z-index: 10001;
-      min-width: 220px;
+      min-width: 250px;
       box-shadow: 0 4px 15px rgba(0,0,0,0.3);
       display: none;
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       overflow: hidden;
+      max-height: 80vh;
+      overflow-y: auto;
     `;
 
     const menuItems = [
       { label: '⚙️ Configuration', action: () => this.showConfigPanel() },
       { separator: true },
       { label: '🛡️ Toggle Buff Panel', action: () => this.togglePanel('fsh-buff-panel') },
-      { label: '⚔️ Toggle Quest Panel', action: () => this.togglePanel('fsh-quest-panel') },
-      { label: '🏰 Toggle Guild Quick Actions', action: () => this.togglePanel('fsh-quick-actions') },
-      { label: '⚔️ Toggle GvG Tracker', action: () => this.togglePanel('fsh-gvg-panel') },
+      { label: '⚔️ Toggle GvG Tracker', action: () => this.toggleGvGPanel() },
+      { label: '📜 Toggle Quest Panel', action: () => this.togglePanel('fsh-quest-panel') },
       { separator: true },
-      { label: '🗼 Scout Tower', action: () => window.location='index.php?cmd=guild&subcmd=scouttower' },
+      { label: '🗼 Scout Tower', action: () => this.goToScoutTower() },
+      { label: '🛒 Guild Store', action: () => this.goToGuildStore() },
+      { label: '⚔️ Guild Conflicts', action: () => this.goToGuildConflicts() },
+      { label: '👥 Guild Advisor', action: () => this.goToGuildAdvisor() },
       { separator: true },
-      { label: `👁️ ${this.overlaysVisible ? 'Hide' : 'Show'} All Overlays`, action: () => this.toggleAllOverlays(), id: 'toggle-overlays' },
+      { label: '👁️ Toggle All Overlays', action: () => this.toggleAllOverlays() },
       { separator: true },
-      { label: '🔧 Debug: Toggle Debug Mode', action: () => this.toggleDebugMode() },
-      { label: '📊 Debug: View Logs', action: () => this.showDebugLogs() },
-      { label: '💾 Debug: Export Data', action: () => this.exportDebugData() },
-      { label: '🗑️ Debug: Clear Storage', action: () => this.clearLocalStorage() },
-      { label: '📋 Debug: View Config', action: () => this.viewConfig() },
-      { separator: true },
+      { label: '🔧 Debug Mode', action: () => this.toggleDebugMode() },
+      { label: '📊 View Metrics', action: () => this.viewMetrics() },
       { label: '🐛 Report Issue', action: () => this.reportIssue() }
     ];
 
-    console.log('FSH: Creating helper menu with items:', menuItems.filter(i => !i.separator).map(i => i.label));
-
-    let menuItemCount = 0;
     menuItems.forEach(item => {
       if (item.separator) {
         const separator = document.createElement('div');
-        separator.style.cssText = `
-          height: 1px;
-          background: #e0e0e0;
-          margin: 5px 0;
-        `;
+        separator.style.cssText = 'height: 1px; background: #e0e0e0; margin: 5px 0;';
         this.menu.appendChild(separator);
         return;
       }
 
       const menuItem = document.createElement('div');
-      if (item.id) menuItem.id = item.id;
       menuItem.style.cssText = `
         padding: 10px 15px;
         cursor: pointer;
@@ -814,16 +668,16 @@ class FSHStatusIndicator {
         menuItem.style.background = 'transparent';
       });
       menuItem.addEventListener('click', () => {
+        console.log('FSH: Menu action:', item.label);
         item.action();
         this.closeMenu();
       });
 
       this.menu.appendChild(menuItem);
-      menuItemCount++;
     });
 
     document.body.appendChild(this.menu);
-    console.log(`FSH: Helper menu created with ${menuItemCount} items (including Scout Tower and Debug functions)`);
+    console.log('FSH: Menu created successfully');
 
     // Close menu when clicking outside
     document.addEventListener('click', (e) => {
@@ -831,6 +685,45 @@ class FSHStatusIndicator {
         this.closeMenu();
       }
     });
+  }
+
+  toggleGvGPanel() {
+    console.log('FSH: Toggling GvG panel');
+    const panel = document.getElementById('fsh-gvg-panel');
+    if (panel) {
+      if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        console.log('FSH: GvG panel shown');
+      } else {
+        panel.style.display = 'none';
+        console.log('FSH: GvG panel hidden');
+      }
+    } else {
+      console.log('FSH: GvG panel not found, creating it');
+      if (this.controller && this.controller.modules.guildHelper) {
+        this.controller.modules.guildHelper.createGvGPanel();
+      }
+    }
+  }
+
+  goToScoutTower() {
+    console.log('FSH: Navigating to Scout Tower');
+    window.location.href = 'index.php?cmd=guild&subcmd=scouttower';
+  }
+
+  goToGuildStore() {
+    console.log('FSH: Navigating to Guild Store');
+    window.location.href = 'index.php?cmd=guild&subcmd=store';
+  }
+
+  goToGuildConflicts() {
+    console.log('FSH: Navigating to Guild Conflicts');
+    window.location.href = 'index.php?cmd=guild&subcmd=conflicts';
+  }
+
+  goToGuildAdvisor() {
+    console.log('FSH: Navigating to Guild Advisor');
+    window.location.href = 'index.php?cmd=guild&subcmd=advisor';
   }
 
   toggleMenu() {
@@ -845,6 +738,7 @@ class FSHStatusIndicator {
     if (!this.menu) return;
     this.menu.style.display = 'block';
     this.menuOpen = true;
+    console.log('FSH: Menu opened');
   }
 
   closeMenu() {
@@ -856,21 +750,15 @@ class FSHStatusIndicator {
   togglePanel(panelId) {
     const panel = document.getElementById(panelId);
     if (panel) {
-      if (panel.style.display === 'none') {
-        panel.style.display = 'block';
-      } else {
-        panel.style.display = 'none';
-      }
+      panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+      console.log(`FSH: Toggled panel ${panelId}`);
     } else {
-      console.warn(`FSH: Panel ${panelId} not found. It may not be initialized yet.`);
-      alert(`Panel not found. This feature may not be available on this page.`);
+      console.warn(`FSH: Panel ${panelId} not found`);
     }
   }
 
   toggleAllOverlays() {
-    // Toggle all FSH panels
-    const panelIds = ['fsh-buff-panel', 'fsh-quest-panel', 'fsh-quick-actions', 'fsh-gvg-panel'];
-
+    const panelIds = ['fsh-buff-panel', 'fsh-quest-panel', 'fsh-gvg-panel'];
     this.overlaysVisible = !this.overlaysVisible;
 
     panelIds.forEach(panelId => {
@@ -880,17 +768,7 @@ class FSHStatusIndicator {
       }
     });
 
-    // Update menu item text
-    const toggleButton = document.getElementById('toggle-overlays');
-    if (toggleButton) {
-      toggleButton.textContent = `👁️ ${this.overlaysVisible ? 'Hide' : 'Show'} All Overlays`;
-    }
-
-    // Show feedback
-    this.update(
-      `Overlays ${this.overlaysVisible ? 'shown' : 'hidden'}`,
-      'success'
-    );
+    this.update(`Overlays ${this.overlaysVisible ? 'shown' : 'hidden'}`, 'success');
   }
 
   update(message, type = 'info') {
@@ -905,510 +783,103 @@ class FSHStatusIndicator {
 
     this.indicator.style.background = colors[type] || colors.info;
     this.indicator.innerHTML = `
-      <strong>FSH Beta:</strong> ${message}
+      <strong>FSH:</strong> ${message}
       <div style="font-size: 9px; margin-top: 2px; opacity: 0.8;">Click for Helper Menu</div>
     `;
-
-    // Auto-hide success messages
-    if (type === 'success') {
-      clearTimeout(this.autoHideTimeout);
-      this.autoHideTimeout = setTimeout(() => {
-        this.hide();
-      }, 5000);
-    }
-  }
-
-  hide() {
-    if (this.indicator) {
-      this.indicator.style.opacity = '0';
-      setTimeout(() => {
-        if (this.indicator && this.indicator.parentElement) {
-          this.indicator.remove();
-          this.indicator = null;
-        }
-      }, 300);
-    }
   }
 
   showConfigPanel() {
-    const panel = new FSHConfigPanel();
-    panel.show();
-  }
-
-  reportIssue() {
-    const config = new FSHConfig();
-    const metrics = new FSHMetrics();
-    const errorReporter = new FSHErrorReporter(config, metrics);
-    errorReporter.showReportDialog();
+    alert('Configuration panel - implementing full UI coming soon!');
   }
 
   toggleDebugMode() {
     const config = new FSHConfig();
     const currentMode = config.get('debugMode');
     config.set('debugMode', !currentMode);
-    alert(`Debug mode is now ${!currentMode ? 'ENABLED' : 'DISABLED'}. Refresh the page for changes to take effect.`);
-    console.log(`FSH: Debug mode toggled to ${!currentMode}`);
+    alert(`Debug mode is now ${!currentMode ? 'ENABLED' : 'DISABLED'}`);
+    console.log(`FSH: Debug mode set to ${!currentMode}`);
   }
 
-  showDebugLogs() {
-    const logs = this.getDebugLogs();
-    const overlay = document.createElement('div');
-    overlay.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0,0,0,0.8);
-      z-index: 10002;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      padding: 20px;
-    `;
-
-    const panel = document.createElement('div');
-    panel.style.cssText = `
-      background: #1e1e1e;
-      color: #d4d4d4;
-      padding: 20px;
-      border-radius: 8px;
-      width: 80%;
-      max-width: 900px;
-      max-height: 80vh;
-      overflow-y: auto;
-      font-family: 'Consolas', 'Monaco', monospace;
-      font-size: 12px;
-    `;
-
-    panel.innerHTML = `
-      <h2 style="color: #4ec9b0; margin-top: 0;">Debug Logs</h2>
-      <pre style="background: #252526; padding: 15px; border-radius: 4px; overflow-x: auto;">${logs}</pre>
-      <button onclick="this.closest('[style*=\\'position: fixed\\']').remove()"
-              style="margin-top: 15px; padding: 10px 20px; background: #0e639c; color: white; border: none; border-radius: 4px; cursor: pointer;">
-        Close
-      </button>
-    `;
-
-    overlay.appendChild(panel);
-    document.body.appendChild(overlay);
-  }
-
-  getDebugLogs() {
-    const logs = [];
-
-    // Collect FSH-related console logs from localStorage if available
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith('fsh_')) {
-        try {
-          const value = localStorage.getItem(key);
-          logs.push(`${key}: ${value.substring(0, 200)}${value.length > 200 ? '...' : ''}`);
-        } catch (e) {
-          logs.push(`${key}: [Error reading value]`);
-        }
-      }
-    }
-
-    // Add performance metrics
+  viewMetrics() {
     const metrics = new FSHMetrics();
     const stats = metrics.getStats();
-    logs.push('\n--- Performance Metrics ---');
-    logs.push(`Total Requests: ${stats.total}`);
-    logs.push(`Successful: ${stats.successful}`);
-    logs.push(`Failed: ${stats.failed}`);
-    logs.push(`Average Duration: ${stats.avgDuration}ms`);
-    logs.push(`Error Rate: ${stats.errorRate}%`);
-
-    // Add config
-    const config = new FSHConfig();
-    logs.push('\n--- Current Configuration ---');
-    logs.push(JSON.stringify(config.config, null, 2));
-
-    return logs.length > 0 ? logs.join('\n') : 'No debug logs available';
+    alert(`FSH Metrics:\n\nLoad Attempts: ${stats.loadAttempts}\nSuccess Rate: ${stats.successRate}%\nAverage Load Time: ${Math.round(stats.averageLoadTime)}ms`);
   }
 
-  exportDebugData() {
-    const data = {
-      timestamp: new Date().toISOString(),
-      config: new FSHConfig().config,
-      metrics: new FSHMetrics().getStats(),
-      localStorage: {},
-      userAgent: navigator.userAgent,
-      url: window.location.href
-    };
-
-    // Export localStorage data
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith('fsh_')) {
-        try {
-          data.localStorage[key] = localStorage.getItem(key);
-        } catch (e) {
-          data.localStorage[key] = '[Error reading]';
-        }
-      }
-    }
-
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `fsh-debug-data-${Date.now()}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-
-    alert('Debug data exported successfully!');
-  }
-
-  clearLocalStorage() {
-    if (!confirm('Are you sure you want to clear all FSH data from local storage? This cannot be undone.')) {
-      return;
-    }
-
-    let cleared = 0;
-    const keys = [];
-
-    // Collect FSH keys
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith('fsh_')) {
-        keys.push(key);
-      }
-    }
-
-    // Remove them
-    keys.forEach(key => {
-      localStorage.removeItem(key);
-      cleared++;
-    });
-
-    alert(`Cleared ${cleared} items from local storage. Refresh the page to reset FSH.`);
-  }
-
-  viewConfig() {
-    const config = new FSHConfig();
-    const overlay = document.createElement('div');
-    overlay.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0,0,0,0.8);
-      z-index: 10002;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      padding: 20px;
-    `;
-
-    const panel = document.createElement('div');
-    panel.style.cssText = `
-      background: #1e1e1e;
-      color: #d4d4d4;
-      padding: 20px;
-      border-radius: 8px;
-      width: 600px;
-      max-width: 90%;
-      max-height: 80vh;
-      overflow-y: auto;
-      font-family: 'Consolas', 'Monaco', monospace;
-      font-size: 12px;
-    `;
-
-    panel.innerHTML = `
-      <h2 style="color: #4ec9b0; margin-top: 0;">Current Configuration</h2>
-      <pre style="background: #252526; padding: 15px; border-radius: 4px; overflow-x: auto;">${JSON.stringify(config.config, null, 2)}</pre>
-      <button onclick="this.closest('[style*=\\'position: fixed\\']').remove()"
-              style="margin-top: 15px; padding: 10px 20px; background: #0e639c; color: white; border: none; border-radius: 4px; cursor: pointer;">
-        Close
-      </button>
-    `;
-
-    overlay.appendChild(panel);
-    document.body.appendChild(overlay);
+  reportIssue() {
+    window.open('https://github.com/tedrubin80/fallenswordngnixhelper/issues/new', '_blank');
   }
 }
 
-// Configuration panel for user settings
-class FSHConfigPanel {
-  show() {
-    const overlay = document.createElement('div');
-    overlay.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0,0,0,0.5);
-      z-index: 10001;
-      display: flex;
-      justify-content: flex-end;
-      align-items: flex-start;
-      padding: 10px;
-    `;
+// Main Enhancement Controller
+class FSHEnhancementController {
+  constructor() {
+    this.modules = {};
+    this.config = new FSHConfig();
+    this.enabled = true;
+  }
 
-    const config = new FSHConfig();
-    const metrics = new FSHMetrics();
-    const stats = metrics.getStats();
+  async initialize() {
+    if (!this.enabled) return;
 
-    const panel = document.createElement('div');
-    panel.style.cssText = `
-      background: white;
-      padding: 20px;
-      border-radius: 8px;
-      width: 500px;
-      max-width: 90vw;
-      max-height: calc(100vh - 20px);
-      overflow-y: auto;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.3);
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      margin-top: 50px;
-    `;
+    console.log('FSH: Initializing Integrated Enhancements...');
 
-    panel.innerHTML = `
-      <h2 style="margin-top: 0; color: #333;">FSH Beta Configuration</h2>
+    // Initialize data parser first
+    this.modules.dataParser = new FSHDataParser();
+    this.modules.dataParser.initialize();
 
-      <div style="margin-bottom: 20px;">
-        <h3 style="color: #667eea; font-size: 14px;">Performance Settings</h3>
-        <div style="display: block; margin-bottom: 10px;">
-          <input type="checkbox" id="fsh-debug" ${config.get('debugMode') ? 'checked' : ''}>
-          <label for="fsh-debug">Enable Debug Mode</label>
-        </div>
-        <div style="display: block; margin-bottom: 10px;">
-          <input type="checkbox" id="fsh-status" ${config.get('showStatusIndicator') ? 'checked' : ''}>
-          <label for="fsh-status">Show Status Indicator</label>
-        </div>
-        <div style="display: block; margin-bottom: 10px;">
-          <input type="checkbox" id="fsh-metrics" ${config.get('enableMetrics') ? 'checked' : ''}>
-          <label for="fsh-metrics">Enable Performance Metrics</label>
-        </div>
-        <div style="display: block; margin-bottom: 10px;">
-          <input type="checkbox" id="fsh-cache" ${config.get('cacheEnabled') ? 'checked' : ''}>
-          <label for="fsh-cache">Enable Smart Caching</label>
-        </div>
-        <div style="display: block; margin-bottom: 10px;">
-          <input type="checkbox" id="fsh-adaptive" ${config.get('adaptiveRetry') ? 'checked' : ''}>
-          <label for="fsh-adaptive">Adaptive Retry Strategy</label>
-        </div>
-      </div>
+    // Create status indicator
+    this.statusIndicator = new FSHStatusIndicator(this);
+    this.statusIndicator.create();
 
-      <div style="margin-bottom: 20px;">
-        <h3 style="color: #667eea; font-size: 14px;">Network Settings</h3>
-        <div style="display: block; margin-bottom: 10px;">
-          <label for="fsh-retries">Max Retries:</label>
-          <input type="number" id="fsh-retries" value="${config.get('maxRetries')}" min="1" max="10" style="width: 60px; margin-left: 10px;">
-        </div>
-        <div style="display: block; margin-bottom: 10px;">
-          <label for="fsh-delay">Base Delay (ms):</label>
-          <input type="number" id="fsh-delay" value="${config.get('baseDelay')}" min="500" max="5000" step="100" style="width: 80px; margin-left: 10px;">
-        </div>
-        <div style="display: block; margin-bottom: 10px;">
-          <label for="fsh-timeout">Timeout (ms):</label>
-          <input type="number" id="fsh-timeout" value="${config.get('timeout')}" min="5000" max="30000" step="1000" style="width: 80px; margin-left: 10px;">
-        </div>
-      </div>
+    // Wait for initial data
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
-      <div style="margin-bottom: 20px; padding: 10px; background: #f5f5f5; border-radius: 4px;">
-        <h3 style="color: #667eea; font-size: 14px; margin-top: 0;">Performance Metrics</h3>
-        <div style="font-size: 12px; line-height: 1.6;">
-          <strong>Load Attempts:</strong> ${stats.loadAttempts}<br>
-          <strong>Success Rate:</strong> ${stats.successRate}%<br>
-          <strong>Average Load Time:</strong> ${Math.round(stats.averageLoadTime)}ms<br>
-          <strong>Network Errors:</strong> ${stats.networkErrors}<br>
-          <strong>Timeout Errors:</strong> ${stats.timeoutErrors}
-        </div>
-        <button id="fsh-reset-metrics" style="margin-top: 10px; padding: 5px 10px; font-size: 11px;">
-          Reset Metrics
-        </button>
-      </div>
+    // Initialize modules based on config
+    if (this.config.get('enableBuffManager')) {
+      console.log('FSH: Initializing Buff Manager');
+      this.modules.buffManager = new FSHBuffManager(this.modules.dataParser);
+      this.modules.buffManager.initialize();
+    }
 
-      <div style="margin-bottom: 20px; padding: 10px; background: #fff3cd; border-radius: 4px; border: 1px solid #ffc107;">
-        <h3 style="color: #856404; font-size: 14px; margin-top: 0;">Error Reporting</h3>
-        <div style="font-size: 12px; line-height: 1.6; color: #856404; margin-bottom: 10px;">
-          Encountered an issue? Help us improve FSH Beta by reporting errors.
-        </div>
-        <div style="display: flex; gap: 8px;">
-          <button id="fsh-report-error" style="padding: 6px 12px; font-size: 11px; background: #eb3349; color: white; border: none; border-radius: 4px; cursor: pointer;">
-            🐛 Report Issue
-          </button>
-          <button id="fsh-clear-errors" style="padding: 6px 12px; font-size: 11px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">
-            Clear Error History
-          </button>
-        </div>
-      </div>
+    if (this.config.get('enableGuildHelper')) {
+      console.log('FSH: Initializing Guild Helper');
+      this.modules.guildHelper = new FSHGuildHelper(this.modules.dataParser);
+      this.modules.guildHelper.initialize();
+    }
 
-      <div style="display: flex; gap: 10px; justify-content: flex-end;">
-        <button id="fsh-reset" style="padding: 8px 16px; background: #f5f5f5; border: none; border-radius: 4px; cursor: pointer;">
-          Reset to Defaults
-        </button>
-        <button id="fsh-save" style="padding: 8px 16px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">
-          Save & Close
-        </button>
-      </div>
-    `;
+    if (this.config.get('enableQuestTracker')) {
+      console.log('FSH: Initializing Quest Tracker');
+      this.modules.questTracker = new FSHQuestTracker(this.modules.dataParser);
+      this.modules.questTracker.initialize();
+    }
 
-    overlay.appendChild(panel);
-    document.body.appendChild(overlay);
-
-    // Event listeners
-    document.getElementById('fsh-save').addEventListener('click', () => {
-      config.set('debugMode', document.getElementById('fsh-debug').checked);
-      config.set('showStatusIndicator', document.getElementById('fsh-status').checked);
-      config.set('enableMetrics', document.getElementById('fsh-metrics').checked);
-      config.set('cacheEnabled', document.getElementById('fsh-cache').checked);
-      config.set('adaptiveRetry', document.getElementById('fsh-adaptive').checked);
-      config.set('maxRetries', parseInt(document.getElementById('fsh-retries').value));
-      config.set('baseDelay', parseInt(document.getElementById('fsh-delay').value));
-      config.set('timeout', parseInt(document.getElementById('fsh-timeout').value));
-
-      overlay.remove();
-      alert('Settings saved! Please refresh the page for changes to take effect.');
-    });
-
-    document.getElementById('fsh-reset').addEventListener('click', () => {
-      if (confirm('Reset all settings to defaults?')) {
-        config.reset();
-        overlay.remove();
-        alert('Settings reset! Please refresh the page.');
-      }
-    });
-
-    document.getElementById('fsh-reset-metrics').addEventListener('click', () => {
-      if (confirm('Reset all performance metrics?')) {
-        metrics.reset();
-        overlay.remove();
-      }
-    });
-
-    // Error reporting buttons
-    document.getElementById('fsh-report-error').addEventListener('click', () => {
-      const errorReporter = new FSHErrorReporter(config, metrics);
-      overlay.remove();
-      errorReporter.showReportDialog();
-    });
-
-    document.getElementById('fsh-clear-errors').addEventListener('click', () => {
-      if (confirm('Clear all stored error history?')) {
-        const errorReporter = new FSHErrorReporter(config, metrics);
-        errorReporter.clearHistory();
-        alert('Error history cleared.');
-      }
-    });
-
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) {
-        overlay.remove();
-      }
-    });
+    console.log('FSH: All enhancements initialized successfully');
+    window.FSHController = this; // Make accessible for debugging
   }
 }
 
-// Enhanced FSH Loader with all improvements
+// Enhanced FSH Loader
 class FSHLoader {
   constructor(config) {
     this.config = config || new FSHConfig();
     this.metrics = new FSHMetrics();
-    this.errorReporter = new FSHErrorReporter(this.config, this.metrics);
-    this.statusIndicator = this.config.get('showStatusIndicator') ? new FSHStatusIndicator() : null;
     this.moduleUrl = 'https://fallenswordhelper.github.io/fallenswordhelper/resources/prod/1524/calfSystem.min.js';
-    this.networkQuality = 'good'; // good, fair, poor
+    this.enhancementController = null;
   }
 
-  // Calculate exponential backoff delay with jitter and adaptive adjustment
   calculateDelay(attempt) {
     const baseDelay = this.config.get('baseDelay');
     const maxDelay = this.config.get('maxDelay');
-
-    // Adjust based on network quality if adaptive retry is enabled
-    let multiplier = 1;
-    if (this.config.get('adaptiveRetry')) {
-      multiplier = this.networkQuality === 'poor' ? 1.5 : this.networkQuality === 'fair' ? 1.2 : 1;
-    }
-
-    const exponentialDelay = Math.min(baseDelay * Math.pow(2, attempt) * multiplier, maxDelay);
-    const jitter = Math.random() * 0.3 * exponentialDelay; // Add 30% jitter
+    const exponentialDelay = Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
+    const jitter = Math.random() * 0.3 * exponentialDelay;
     return exponentialDelay + jitter;
   }
 
-  // Assess network quality based on previous attempts
-  assessNetworkQuality() {
-    const stats = this.metrics.getStats();
-    const successRate = parseFloat(stats.successRate);
-
-    if (successRate < 50) {
-      this.networkQuality = 'poor';
-    } else if (successRate < 80) {
-      this.networkQuality = 'fair';
-    } else {
-      this.networkQuality = 'good';
-    }
-
-    if (this.config.get('debugMode')) {
-      console.log(`FSH: Network quality assessed as: ${this.networkQuality}`);
-    }
-  }
-
-  // Check if cached module is still valid
-  checkCache() {
-    if (!this.config.get('cacheEnabled')) return null;
-
-    try {
-      const cached = localStorage.getItem('fsh_module_cache');
-      if (cached) {
-        const { timestamp, url } = JSON.parse(cached);
-        const age = Date.now() - timestamp;
-        const cacheDuration = this.config.get('cacheDuration');
-
-        if (age < cacheDuration && url === this.moduleUrl) {
-          if (this.config.get('debugMode')) {
-            console.log(`FSH: Using cached module (age: ${Math.round(age / 1000)}s)`);
-          }
-          return true;
-        }
-      }
-    } catch (error) {
-      console.warn('FSH: Cache check failed:', error);
-    }
-    return null;
-  }
-
-  // Update cache
-  updateCache() {
-    if (!this.config.get('cacheEnabled')) return;
-
-    try {
-      localStorage.setItem('fsh_module_cache', JSON.stringify({
-        timestamp: Date.now(),
-        url: this.moduleUrl
-      }));
-    } catch (error) {
-      console.warn('FSH: Could not update cache:', error);
-    }
-  }
-
-  // Enhanced module loading with proper error handling
   async loadModule(gmInfo) {
     const startTime = Date.now();
     let lastError = null;
     const maxRetries = this.config.get('maxRetries');
-
-    // Assess network quality before starting
-    if (this.config.get('adaptiveRetry')) {
-      this.assessNetworkQuality();
-    }
-
-    // Check cache first
-    const cached = this.checkCache();
-    if (cached && Math.random() > 0.1) { // 10% chance to bypass cache for freshness
-      if (this.statusIndicator) {
-        this.statusIndicator.update('Using cached module', 'info');
-      }
-      // Still need to attempt load, but we know it should work
-    }
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
@@ -1416,16 +887,11 @@ class FSHLoader {
           console.log(`FSH: Loading attempt ${attempt + 1}/${maxRetries}`);
         }
 
-        if (this.statusIndicator) {
-          this.statusIndicator.update(`Loading... (${attempt + 1}/${maxRetries})`, 'info');
-        }
-
         this.metrics.recordAttempt();
 
-        // Add cache busting to prevent stale module issues
+        // Add cache busting
         const cacheBuster = Date.now();
         const moduleUrlWithCache = `${this.moduleUrl}?v=${cacheBuster}&attempt=${attempt}`;
-
         const timeout = this.config.get('timeout');
 
         // Import with timeout protection
@@ -1443,16 +909,16 @@ class FSHLoader {
             console.log(`FSH: Module loaded successfully in ${loadTime}ms`);
           }
 
-          if (this.config.get('enableMetrics')) {
-            this.metrics.recordSuccess(loadTime);
-          }
-
-          if (this.statusIndicator) {
-            this.statusIndicator.update(`Loaded successfully (${loadTime}ms)`, 'success');
-          }
-
-          this.updateCache();
+          this.metrics.recordSuccess(loadTime);
+          
+          // Initialize the original FSH
           module.default('1524', gmInfo);
+          
+          // Initialize our enhancements
+          console.log('FSH: Initializing custom enhancements');
+          this.enhancementController = new FSHEnhancementController();
+          await this.enhancementController.initialize();
+          
           return true;
         } else {
           throw new Error('Invalid module structure');
@@ -1461,10 +927,7 @@ class FSHLoader {
       } catch (error) {
         lastError = error;
         const errorType = error.message.includes('timeout') ? 'timeout' : 'network';
-
-        if (this.config.get('enableMetrics')) {
-          this.metrics.recordFailure(errorType);
-        }
+        this.metrics.recordFailure(errorType);
 
         if (this.config.get('debugMode')) {
           console.warn(`FSH: Attempt ${attempt + 1} failed:`, error.message);
@@ -1473,15 +936,9 @@ class FSHLoader {
         // Don't wait after the last attempt
         if (attempt < maxRetries - 1) {
           const delay = this.calculateDelay(attempt);
-
-          if (this.statusIndicator) {
-            this.statusIndicator.update(`Retry in ${Math.round(delay / 1000)}s...`, 'warning');
-          }
-
           if (this.config.get('debugMode')) {
             console.log(`FSH: Retrying in ${Math.round(delay)}ms...`);
           }
-
           await new Promise(resolve => setTimeout(resolve, delay));
         }
       }
@@ -1489,99 +946,21 @@ class FSHLoader {
 
     // All attempts failed
     console.error('FSH: Failed to load after all attempts. Last error:', lastError);
-
-    if (this.config.get('enableMetrics')) {
-      this.metrics.recordFailure('final');
-    }
-
-    // Record the error for reporting
-    this.errorReporter.recordError(lastError, {
-      attemptsMade: maxRetries,
-      totalTime: Date.now() - startTime,
-      moduleUrl: this.moduleUrl,
-      networkQuality: this.networkQuality
-    });
-
-    if (this.statusIndicator) {
-      this.statusIndicator.update('Failed to load', 'error');
-    }
-
-    this.showUserError(lastError);
+    
+    // Try to initialize enhancements anyway
+    console.log('FSH: Attempting to initialize enhancements without base module');
+    this.enhancementController = new FSHEnhancementController();
+    await this.enhancementController.initialize();
+    
     return false;
   }
 
-  // User-friendly error notification
-  showUserError(error) {
-    try {
-      const errorDiv = document.createElement('div');
-      errorDiv.style.cssText = `
-        position: fixed;
-        top: 10px;
-        right: 10px;
-        background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
-        color: white;
-        padding: 12px;
-        border-radius: 6px;
-        z-index: 10000;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        font-size: 12px;
-        max-width: 320px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-        line-height: 1.4;
-      `;
-      errorDiv.innerHTML = `
-        <strong style="font-size: 14px;">🛠️ FSH Beta Error</strong><br>
-        <div style="margin-top: 8px;">
-          Failed to load helper module after ${this.config.get('maxRetries')} attempts.
-        </div>
-        <div style="margin-top: 8px; font-size: 11px; opacity: 0.9;">
-          Error: ${error.message}
-        </div>
-        <div style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
-          <button id="fsh-error-report-btn" style="flex: 1 1 100%; padding: 6px; background: rgba(255,255,255,0.3); border: 1px solid white; color: white; cursor: pointer; border-radius: 3px; font-size: 11px; font-weight: bold;">
-            🐛 Report This Error
-          </button>
-          <button onclick="location.reload()" style="flex: 1; padding: 6px; background: rgba(255,255,255,0.2); border: 1px solid white; color: white; cursor: pointer; border-radius: 3px; font-size: 11px;">
-            Reload Page
-          </button>
-          <button onclick="this.parentElement.parentElement.remove()" style="flex: 1; padding: 6px; background: rgba(255,255,255,0.2); border: 1px solid white; color: white; cursor: pointer; border-radius: 3px; font-size: 11px;">
-            Dismiss
-          </button>
-        </div>
-      `;
-      document.body.appendChild(errorDiv);
-
-      // Add event listener for report button
-      const reportBtn = document.getElementById('fsh-error-report-btn');
-      if (reportBtn) {
-        reportBtn.addEventListener('click', () => {
-          errorDiv.remove();
-          this.errorReporter.showReportDialog(error, {
-            source: 'module_load_failure',
-            attemptsMade: this.config.get('maxRetries')
-          });
-        });
-      }
-
-      // Auto-remove after 30 seconds
-      setTimeout(() => {
-        if (errorDiv.parentElement) {
-          errorDiv.remove();
-        }
-      }, 30000);
-    } catch (e) {
-      // Silently fail if we can't show the error
-      console.error('FSH: Could not display error notification:', e);
-    }
-  }
-
-  // Safe GM_info access with fallback
   getGMInfo() {
     try {
       return typeof GM_info !== 'undefined' ? GM_info : {
         script: {
-          name: 'FallenSwordHelper Beta',
-          version: '1525-beta-3'
+          name: 'FallenSwordHelper Integrated',
+          version: '1525-integrated'
         },
         userAgent: navigator.userAgent
       };
@@ -1589,8 +968,8 @@ class FSHLoader {
       console.warn('FSH: Could not access GM_info:', error);
       return {
         script: {
-          name: 'FallenSwordHelper Beta',
-          version: '1525-beta-3'
+          name: 'FallenSwordHelper Integrated',
+          version: '1525-integrated'
         },
         userAgent: navigator.userAgent
       };
@@ -1620,7 +999,7 @@ async function initializeFSH() {
     }
     window.fshLoading = true;
 
-    console.log('FSH Beta: Initializing...');
+    console.log('FSH Integrated: Initializing...');
 
     const config = new FSHConfig();
     const loader = new FSHLoader(config);
@@ -1629,16 +1008,18 @@ async function initializeFSH() {
     // Make config accessible globally for debugging
     if (config.get('debugMode')) {
       window.FSHConfig = config;
-      window.FSHMetrics = loader.metrics;
+      window.FSHLoader = loader;
     }
 
     const success = await loader.loadModule(gmInfo);
 
     window.fshLoading = false;
-    window.fshLoaded = success;
+    window.fshLoaded = true;
 
     if (success) {
-      console.log('FSH Beta: Initialization complete');
+      console.log('FSH Integrated: Full initialization complete');
+    } else {
+      console.log('FSH Integrated: Enhancements initialized (base module failed)');
     }
 
   } catch (error) {
@@ -1647,23 +1028,26 @@ async function initializeFSH() {
   }
 }
 
-// Enhanced script injection with better error handling
+// Script injection
 function injectScript() {
   try {
     const script = document.createElement('script');
-
-    // Create a more robust script content - inject all classes
+    
+    // Inject all classes and functions
     const scriptContent = `
       (async function() {
         try {
           // Inject all classes
           ${FSHConfig.toString()}
           ${FSHMetrics.toString()}
-          ${FSHErrorReporter.toString()}
+          ${FSHDataParser.toString()}
+          ${FSHGuildHelper.toString()}
+          ${FSHBuffManager.toString()}
+          ${FSHQuestTracker.toString()}
           ${FSHStatusIndicator.toString()}
-          ${FSHConfigPanel.toString()}
+          ${FSHEnhancementController.toString()}
           ${FSHLoader.toString()}
-
+          
           // Initialize
           const initFn = ${initializeFSH.toString()};
           await initFn();
@@ -1675,12 +1059,7 @@ function injectScript() {
 
     script.textContent = scriptContent;
     script.setAttribute('data-fsh-injected', 'true');
-    script.setAttribute('data-fsh-version', '1525-beta-3');
-
-    // Add error handling for script injection
-    script.onerror = function(error) {
-      console.error('FSH: Script injection failed:', error);
-    };
+    script.setAttribute('data-fsh-version', '1525-integrated');
 
     document.body.appendChild(script);
 
@@ -1696,17 +1075,15 @@ function injectScript() {
   }
 }
 
-// Wait for page readiness with multiple fallbacks
+// Wait for page readiness
 function waitForPageReady() {
   return new Promise(resolve => {
-    // If page is already ready
     if (document.readyState === 'complete' ||
         (document.readyState === 'interactive' && document.body)) {
       resolve();
       return;
     }
 
-    // Wait for DOMContentLoaded
     const onReady = () => {
       document.removeEventListener('DOMContentLoaded', onReady);
       window.removeEventListener('load', onReady);
@@ -1721,7 +1098,7 @@ function waitForPageReady() {
   });
 }
 
-// Main execution with staggered loading to reduce server load
+// Main execution
 (async function main() {
   try {
     const config = new FSHConfig();

@@ -1,0 +1,830 @@
+// ==UserScript==
+// @name           FSH Complete with Debug
+// @namespace      terrasoft.gr
+// @description    Fallen Sword Helper - Complete version with debug features
+// @include        https://www.fallensword.com/*
+// @include        https://guide.fallensword.com/*
+// @include        https://fallensword.com/*
+// @include        https://*.fallensword.com/*
+// @include        https://local.huntedcow.com/fallensword/*
+// @exclude        https://forum.fallensword.com/*
+// @exclude        https://wiki.fallensword.com/*
+// @exclude        https://www.fallensword.com/app.php*
+// @exclude        https://www.fallensword.com/fetchdata.php*
+// @version        1525-complete-debug
+// @grant          none
+// @run-at         document-end
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    console.log('FSH Complete: Starting initialization');
+
+    // ===================================================================
+    // CONFIGURATION SYSTEM
+    // ===================================================================
+    class FSHConfig {
+        constructor() {
+            this.defaults = {
+                autoRefresh: false,
+                autoRefreshInterval: 300000,
+                showGvGPanel: true,
+                showBuffPanel: true,
+                showQuestPanel: true,
+                enableNotifications: true,
+                conflictAlerts: true,
+                buffExpireWarning: 300,
+                debugMode: false,
+                gvgPanelPosition: null,
+                buffPanelPosition: null,
+                questPanelPosition: null
+            };
+            this.config = this.loadConfig();
+            this.autoRefreshTimer = null;
+        }
+
+        loadConfig() {
+            try {
+                const stored = localStorage.getItem('fsh_complete_config');
+                if (stored) {
+                    return { ...this.defaults, ...JSON.parse(stored) };
+                }
+            } catch (error) {
+                console.warn('FSH: Could not load config:', error);
+            }
+            return { ...this.defaults };
+        }
+
+        saveConfig() {
+            try {
+                localStorage.setItem('fsh_complete_config', JSON.stringify(this.config));
+                if (this.config.debugMode) {
+                    console.log('FSH Debug: Configuration saved', this.config);
+                }
+            } catch (error) {
+                console.warn('FSH: Could not save config:', error);
+            }
+        }
+
+        get(key) {
+            return this.config[key] !== undefined ? this.config[key] : this.defaults[key];
+        }
+
+        set(key, value) {
+            this.config[key] = value;
+            this.saveConfig();
+            
+            if (key === 'autoRefresh' || key === 'autoRefreshInterval') {
+                this.updateAutoRefresh();
+            }
+        }
+
+        updateAutoRefresh() {
+            // Clear existing timer
+            if (this.autoRefreshTimer) {
+                clearInterval(this.autoRefreshTimer);
+                this.autoRefreshTimer = null;
+            }
+
+            // Remove existing countdown
+            const existingCountdown = document.getElementById('fsh-refresh-countdown');
+            if (existingCountdown) {
+                existingCountdown.remove();
+            }
+
+            // Set new timer if enabled
+            if (this.config.autoRefresh) {
+                const interval = this.config.autoRefreshInterval;
+                
+                const countdown = document.createElement('div');
+                countdown.id = 'fsh-refresh-countdown';
+                countdown.style.cssText = `
+                    position: fixed;
+                    bottom: 10px;
+                    right: 10px;
+                    background: rgba(0, 0, 0, 0.7);
+                    color: white;
+                    padding: 5px 10px;
+                    border-radius: 5px;
+                    font-size: 11px;
+                    font-family: Arial, sans-serif;
+                    z-index: 9997;
+                    cursor: pointer;
+                `;
+                countdown.title = 'Click to refresh now';
+                countdown.addEventListener('click', () => window.location.reload());
+                document.body.appendChild(countdown);
+
+                let remaining = interval;
+                const updateCountdown = () => {
+                    const minutes = Math.floor(remaining / 60000);
+                    const seconds = Math.floor((remaining % 60000) / 1000);
+                    countdown.innerHTML = `⟳ Refresh: ${minutes}:${seconds.toString().padStart(2, '0')}`;
+                    remaining -= 1000;
+                    
+                    if (remaining <= 0) {
+                        window.location.reload();
+                    }
+                };
+
+                updateCountdown();
+                this.autoRefreshTimer = setInterval(updateCountdown, 1000);
+                
+                console.log(`FSH: Auto-refresh enabled (${interval/1000} seconds)`);
+            }
+        }
+    }
+
+    // ===================================================================
+    // DEBUG FUNCTIONS
+    // ===================================================================
+    function showDebugLogs() {
+        const logs = [];
+        
+        // Collect FSH-related items from localStorage
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.includes('fsh')) {
+                try {
+                    const value = localStorage.getItem(key);
+                    logs.push(`${key}: ${value.substring(0, 200)}${value.length > 200 ? '...' : ''}`);
+                } catch (e) {
+                    logs.push(`${key}: [Error reading value]`);
+                }
+            }
+        }
+
+        // Create debug window
+        const debugWindow = document.createElement('div');
+        debugWindow.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 8px;
+            width: 80%;
+            max-width: 900px;
+            max-height: 80vh;
+            overflow-y: auto;
+            z-index: 10002;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        `;
+
+        debugWindow.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h2 style="color: #4ec9b0; margin: 0;">Debug Logs</h2>
+                <button onclick="this.parentElement.parentElement.remove()" 
+                        style="background: #f44336; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 4px;">
+                    Close
+                </button>
+            </div>
+            <pre style="background: #252526; padding: 15px; border-radius: 4px; overflow-x: auto; white-space: pre-wrap;">
+${logs.length > 0 ? logs.join('\n') : 'No FSH data found in localStorage'}
+
+=== Current Page Info ===
+URL: ${window.location.href}
+User Agent: ${navigator.userAgent}
+FSH Version: 1525-complete-debug
+Time: ${new Date().toLocaleString()}
+            </pre>
+        `;
+
+        document.body.appendChild(debugWindow);
+    }
+
+    function exportDebugData() {
+        const data = {
+            timestamp: new Date().toISOString(),
+            config: new FSHConfig().config,
+            localStorage: {},
+            userAgent: navigator.userAgent,
+            url: window.location.href,
+            fshVersion: '1525-complete-debug'
+        };
+
+        // Export FSH localStorage data
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.includes('fsh')) {
+                try {
+                    data.localStorage[key] = localStorage.getItem(key);
+                } catch (e) {
+                    data.localStorage[key] = '[Error reading]';
+                }
+            }
+        }
+
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `fsh-debug-${Date.now()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        alert('Debug data exported!');
+    }
+
+    function clearFSHStorage() {
+        if (!confirm('This will clear all FSH settings and data. Are you sure?')) {
+            return;
+        }
+
+        let cleared = 0;
+        const keys = [];
+
+        // Collect FSH keys
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.includes('fsh')) {
+                keys.push(key);
+            }
+        }
+
+        // Remove them
+        keys.forEach(key => {
+            localStorage.removeItem(key);
+            cleared++;
+        });
+
+        alert(`Cleared ${cleared} FSH items from storage. Page will reload.`);
+        window.location.reload();
+    }
+
+    // ===================================================================
+    // MAKE PANELS DRAGGABLE
+    // ===================================================================
+    function makePanelDraggable(panel, configKey = null) {
+        if (!panel) return;
+
+        panel.style.position = 'fixed';
+        panel.style.cursor = 'move';
+
+        let isDragging = false;
+        let currentX;
+        let currentY;
+        let initialX;
+        let initialY;
+        let xOffset = 0;
+        let yOffset = 0;
+
+        // Load saved position
+        if (configKey) {
+            const config = new FSHConfig();
+            const savedPos = config.get(configKey);
+            if (savedPos) {
+                panel.style.left = savedPos.left;
+                panel.style.top = savedPos.top;
+            }
+        }
+
+        function dragStart(e) {
+            if (e.type === "touchstart") {
+                initialX = e.touches[0].clientX - xOffset;
+                initialY = e.touches[0].clientY - yOffset;
+            } else {
+                initialX = e.clientX - xOffset;
+                initialY = e.clientY - yOffset;
+            }
+
+            if (e.target === panel || panel.contains(e.target)) {
+                isDragging = true;
+            }
+        }
+
+        function dragEnd(e) {
+            initialX = currentX;
+            initialY = currentY;
+            isDragging = false;
+            
+            // Save position
+            if (configKey) {
+                const config = new FSHConfig();
+                config.set(configKey, {
+                    left: panel.style.left,
+                    top: panel.style.top
+                });
+            }
+        }
+
+        function drag(e) {
+            if (!isDragging) return;
+
+            e.preventDefault();
+
+            if (e.type === "touchmove") {
+                currentX = e.touches[0].clientX - initialX;
+                currentY = e.touches[0].clientY - initialY;
+            } else {
+                currentX = e.clientX - initialX;
+                currentY = e.clientY - initialY;
+            }
+
+            xOffset = currentX;
+            yOffset = currentY;
+
+            panel.style.transform = `translate(${currentX}px, ${currentY}px)`;
+        }
+
+        panel.addEventListener('touchstart', dragStart, false);
+        panel.addEventListener('touchend', dragEnd, false);
+        panel.addEventListener('touchmove', drag, false);
+        panel.addEventListener('mousedown', dragStart, false);
+        document.addEventListener('mouseup', dragEnd, false);
+        document.addEventListener('mousemove', drag, false);
+    }
+
+    // ===================================================================
+    // CREATE GVG PANEL
+    // ===================================================================
+    function createGvGPanel() {
+        const config = new FSHConfig();
+        
+        let panel = document.getElementById('fsh-gvg-panel');
+        if (panel) panel.remove();
+
+        panel = document.createElement('div');
+        panel.id = 'fsh-gvg-panel';
+        panel.style.cssText = `
+            position: fixed;
+            top: 100px;
+            left: 20px;
+            background: rgba(20, 20, 20, 0.95);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            border: 2px solid #c41e3a;
+            z-index: 9998;
+            font-family: Arial, sans-serif;
+            font-size: 11px;
+            min-width: 280px;
+            max-width: 350px;
+            display: ${config.get('showGvGPanel') ? 'block' : 'none'};
+        `;
+
+        panel.innerHTML = `
+            <div style="position: absolute; top: 5px; right: 5px;">
+                <button onclick="this.parentElement.parentElement.style.display='none'" style="background: rgba(255,0,0,0.5); border: none; color: white; cursor: pointer; padding: 2px 6px; border-radius: 3px;">×</button>
+            </div>
+            <div style="font-weight: bold; margin-bottom: 10px; font-size: 14px; color: #ff6b6b;">
+                ⚔️ GvG Tracker
+            </div>
+            <div style="margin-bottom: 10px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 5px;">
+                <div style="font-size: 10px; opacity: 0.7;">No active conflicts detected</div>
+            </div>
+            <div style="margin-top: 10px;">
+                <button onclick="window.location='index.php?cmd=guild&subcmd=scouttower'" 
+                        style="width: 100%; margin-bottom: 5px; padding: 8px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                    🗼 Scout Tower
+                </button>
+                <button onclick="window.location='index.php?cmd=guild&subcmd=conflicts'" 
+                        style="width: 100%; margin-bottom: 5px; padding: 8px; background: #c41e3a; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                    View All Conflicts
+                </button>
+                <button onclick="window.location='index.php?cmd=guild&subcmd=advisor'" 
+                        style="width: 100%; padding: 8px; background: #764ba2; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                    Guild Advisor
+                </button>
+            </div>
+            <div style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 10px;">
+                <div style="font-weight: bold; margin-bottom: 8px; font-size: 12px;">Recent Conflicts</div>
+                <div style="font-size: 10px; opacity: 0.6;">No recent conflicts</div>
+            </div>
+        `;
+
+        document.body.appendChild(panel);
+        makePanelDraggable(panel, 'gvgPanelPosition');
+        
+        if (config.get('debugMode')) {
+            console.log('FSH Debug: GvG panel created');
+        }
+    }
+
+    // ===================================================================
+    // CREATE BUFF PANEL
+    // ===================================================================
+    function createBuffPanel() {
+        const config = new FSHConfig();
+        
+        let panel = document.getElementById('fsh-buff-panel');
+        if (panel) panel.remove();
+
+        panel = document.createElement('div');
+        panel.id = 'fsh-buff-panel';
+        panel.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            z-index: 9998;
+            font-family: Arial, sans-serif;
+            font-size: 11px;
+            min-width: 200px;
+            display: ${config.get('showBuffPanel') ? 'block' : 'none'};
+        `;
+
+        panel.innerHTML = `
+            <div style="position: absolute; top: 5px; right: 5px;">
+                <button onclick="this.parentElement.parentElement.style.display='none'" style="background: rgba(255,0,0,0.5); border: none; color: white; cursor: pointer; padding: 2px 6px; border-radius: 3px;">×</button>
+            </div>
+            <div style="font-weight: bold; margin-bottom: 10px; font-size: 13px;">🛡️ Active Buffs</div>
+            <div>No buffs active</div>
+        `;
+
+        document.body.appendChild(panel);
+        makePanelDraggable(panel, 'buffPanelPosition');
+        
+        if (config.get('debugMode')) {
+            console.log('FSH Debug: Buff panel created');
+        }
+    }
+
+    // ===================================================================
+    // CREATE CONFIGURATION PANEL
+    // ===================================================================
+    function showConfigPanel() {
+        const config = new FSHConfig();
+        
+        const existing = document.getElementById('fsh-config-overlay');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'fsh-config-overlay';
+        overlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 10001;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        `;
+
+        const panel = document.createElement('div');
+        panel.style.cssText = `
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            width: 550px;
+            max-width: 90vw;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        `;
+
+        panel.innerHTML = `
+            <h2 style="margin-top: 0; color: #333;">FSH Configuration</h2>
+
+            <div style="margin-bottom: 25px;">
+                <h3 style="color: #667eea; font-size: 16px;">⟳ Auto Refresh</h3>
+                <label>
+                    <input type="checkbox" id="fsh-auto-refresh" ${config.get('autoRefresh') ? 'checked' : ''}>
+                    Enable Auto Refresh
+                </label>
+                <br><br>
+                <label>Refresh Interval:</label>
+                <select id="fsh-refresh-interval">
+                    <option value="60000" ${config.get('autoRefreshInterval') === 60000 ? 'selected' : ''}>1 minute</option>
+                    <option value="120000" ${config.get('autoRefreshInterval') === 120000 ? 'selected' : ''}>2 minutes</option>
+                    <option value="300000" ${config.get('autoRefreshInterval') === 300000 ? 'selected' : ''}>5 minutes</option>
+                    <option value="600000" ${config.get('autoRefreshInterval') === 600000 ? 'selected' : ''}>10 minutes</option>
+                    <option value="900000" ${config.get('autoRefreshInterval') === 900000 ? 'selected' : ''}>15 minutes</option>
+                </select>
+            </div>
+
+            <div style="margin-bottom: 25px;">
+                <h3 style="color: #667eea; font-size: 16px;">📊 Panels</h3>
+                <label><input type="checkbox" id="fsh-show-gvg" ${config.get('showGvGPanel') ? 'checked' : ''}> Show GvG Tracker</label><br>
+                <label><input type="checkbox" id="fsh-show-buff" ${config.get('showBuffPanel') ? 'checked' : ''}> Show Buff Panel</label>
+            </div>
+
+            <div style="margin-bottom: 25px; padding: 15px; background: #f5f5f5; border-radius: 5px;">
+                <h3 style="color: #667eea; font-size: 16px; margin-top: 0;">🔧 Debug Tools</h3>
+                <label style="display: block; margin-bottom: 15px;">
+                    <input type="checkbox" id="fsh-debug-mode" ${config.get('debugMode') ? 'checked' : ''}>
+                    Enable Debug Mode (logs to console)
+                </label>
+                
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px;">
+                    <button id="fsh-view-logs" style="padding: 8px; background: #444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                        📋 View Logs
+                    </button>
+                    <button id="fsh-export-data" style="padding: 8px; background: #444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                        💾 Export Data
+                    </button>
+                    <button id="fsh-clear-storage" style="padding: 8px; background: #c41e3a; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                        🗑️ Clear Storage
+                    </button>
+                    <button id="fsh-reset-positions" style="padding: 8px; background: #764ba2; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                        📍 Reset Positions
+                    </button>
+                </div>
+                
+                <div id="fsh-debug-info" style="margin-top: 15px; padding: 10px; background: white; border-radius: 4px; font-size: 11px; font-family: monospace;">
+                    <strong>System Info:</strong><br>
+                    Version: 1525-complete-debug<br>
+                    Config Items: ${Object.keys(config.config).length}<br>
+                    Storage Keys: ${Array.from({length: localStorage.length}, (_, i) => localStorage.key(i)).filter(k => k.includes('fsh')).length}<br>
+                    Debug Mode: ${config.get('debugMode') ? 'ON' : 'OFF'}
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button id="fsh-config-reset" style="padding: 8px 16px; background: #ff9800; color: white; border: none; border-radius: 4px; cursor: pointer;">Reset All</button>
+                <button id="fsh-config-cancel" style="padding: 8px 16px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">Cancel</button>
+                <button id="fsh-config-save" style="padding: 8px 16px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">Save Settings</button>
+            </div>
+        `;
+
+        overlay.appendChild(panel);
+        document.body.appendChild(overlay);
+
+        // Debug tool event listeners
+        document.getElementById('fsh-view-logs').addEventListener('click', () => {
+            showDebugLogs();
+        });
+
+        document.getElementById('fsh-export-data').addEventListener('click', () => {
+            exportDebugData();
+        });
+
+        document.getElementById('fsh-clear-storage').addEventListener('click', () => {
+            clearFSHStorage();
+        });
+
+        document.getElementById('fsh-reset-positions').addEventListener('click', () => {
+            config.set('gvgPanelPosition', null);
+            config.set('buffPanelPosition', null);
+            alert('Panel positions reset! Panels will return to default positions.');
+            window.location.reload();
+        });
+
+        document.getElementById('fsh-config-reset').addEventListener('click', () => {
+            if (confirm('Reset ALL settings to defaults?')) {
+                config.config = config.defaults;
+                config.saveConfig();
+                alert('All settings reset!');
+                window.location.reload();
+            }
+        });
+
+        // Save event listener
+        document.getElementById('fsh-config-save').addEventListener('click', () => {
+            config.set('autoRefresh', document.getElementById('fsh-auto-refresh').checked);
+            config.set('autoRefreshInterval', parseInt(document.getElementById('fsh-refresh-interval').value));
+            config.set('showGvGPanel', document.getElementById('fsh-show-gvg').checked);
+            config.set('showBuffPanel', document.getElementById('fsh-show-buff').checked);
+            config.set('debugMode', document.getElementById('fsh-debug-mode').checked);
+
+            // Apply visibility
+            const gvgPanel = document.getElementById('fsh-gvg-panel');
+            const buffPanel = document.getElementById('fsh-buff-panel');
+            if (gvgPanel) gvgPanel.style.display = config.get('showGvGPanel') ? 'block' : 'none';
+            if (buffPanel) buffPanel.style.display = config.get('showBuffPanel') ? 'block' : 'none';
+            
+            alert('Settings saved!');
+            overlay.remove();
+        });
+
+        document.getElementById('fsh-config-cancel').addEventListener('click', () => {
+            overlay.remove();
+        });
+
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                overlay.remove();
+            }
+        });
+    }
+
+    // ===================================================================
+    // CREATE STATUS INDICATOR
+    // ===================================================================
+    function createStatusIndicator() {
+        const config = new FSHConfig();
+        
+        let indicator = document.getElementById('fsh-status-indicator');
+        if (indicator) indicator.remove();
+
+        indicator = document.createElement('div');
+        indicator.id = 'fsh-status-indicator';
+        indicator.style.cssText = `
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            z-index: 10000;
+            font-family: Arial, sans-serif;
+            font-size: 11px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            cursor: pointer;
+        `;
+        indicator.innerHTML = 'FSH Menu ▼';
+        indicator.title = 'Click for FSH options';
+
+        // Add debug indicator if debug mode is on
+        if (config.get('debugMode')) {
+            indicator.innerHTML = 'FSH Menu ▼ 🔧';
+        }
+
+        document.body.appendChild(indicator);
+
+        // Create dropdown menu
+        const menu = document.createElement('div');
+        menu.id = 'fsh-menu';
+        menu.style.cssText = `
+            position: fixed;
+            top: 45px;
+            right: 10px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            z-index: 10001;
+            min-width: 200px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            display: none;
+            font-family: Arial, sans-serif;
+        `;
+
+        const menuItems = [
+            { text: '⚙️ Configuration', action: showConfigPanel },
+            { text: '🛡️ Toggle Buff Panel', action: () => togglePanel('fsh-buff-panel') },
+            { text: '⚔️ Toggle GvG Tracker', action: () => togglePanel('fsh-gvg-panel') },
+            { text: '🗼 Scout Tower', action: () => window.location='index.php?cmd=guild&subcmd=scouttower' },
+            { text: '🛒 Guild Store', action: () => window.location='index.php?cmd=guild&subcmd=store' },
+            { text: '⚔️ Guild Conflicts', action: () => window.location='index.php?cmd=guild&subcmd=conflicts' }
+        ];
+
+        menuItems.forEach((item, index) => {
+            const menuItem = document.createElement('div');
+            menuItem.style.cssText = `
+                padding: 10px 15px;
+                cursor: pointer;
+                font-size: 12px;
+                border-bottom: ${index < menuItems.length - 1 ? '1px solid #eee' : 'none'};
+            `;
+            menuItem.innerHTML = item.text;
+            menuItem.onmouseover = () => menuItem.style.background = '#f5f5f5';
+            menuItem.onmouseout = () => menuItem.style.background = 'white';
+            menuItem.onclick = () => {
+                item.action();
+                menu.style.display = 'none';
+            };
+            menu.appendChild(menuItem);
+        });
+
+        document.body.appendChild(menu);
+
+        // Toggle menu on indicator click
+        indicator.onclick = () => {
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        };
+
+        // Close menu when clicking elsewhere
+        document.addEventListener('click', (e) => {
+            if (!indicator.contains(e.target) && !menu.contains(e.target)) {
+                menu.style.display = 'none';
+            }
+        });
+
+        if (config.get('debugMode')) {
+            console.log('FSH Debug: Status indicator created');
+        }
+    }
+
+    function togglePanel(panelId) {
+        const panel = document.getElementById(panelId);
+        if (panel) {
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        }
+    }
+
+    // ===================================================================
+    // OVERRIDE CONFIGURATION ITEMS IN HELPER MENU
+    // ===================================================================
+    function overrideConfigItems() {
+        const config = new FSHConfig();
+        
+        setInterval(() => {
+            const configItems = document.querySelectorAll('a, div, td');
+            configItems.forEach(item => {
+                if (item.textContent.includes('Configuration') && !item.dataset.fshProcessed) {
+                    item.dataset.fshProcessed = 'true';
+                    item.style.cursor = 'pointer';
+                    item.onclick = (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        showConfigPanel();
+                        return false;
+                    };
+                    
+                    if (config.get('debugMode')) {
+                        console.log('FSH Debug: Configuration item overridden');
+                    }
+                }
+            });
+        }, 1000);
+    }
+
+    // ===================================================================
+    // LOAD BASE FSH MODULE
+    // ===================================================================
+    async function loadBaseFSH() {
+        const config = new FSHConfig();
+        
+        try {
+            if (config.get('debugMode')) {
+                console.log('FSH Debug: Attempting to load base module...');
+            }
+            
+            const moduleUrl = 'https://fallenswordhelper.github.io/fallenswordhelper/resources/prod/1524/calfSystem.min.js';
+            const module = await import(moduleUrl + '?v=' + Date.now());
+            
+            if (module && typeof module.default === 'function') {
+                const gmInfo = {
+                    script: {
+                        name: 'FSH Complete',
+                        version: '1525-complete-debug'
+                    },
+                    userAgent: navigator.userAgent
+                };
+                module.default('1524', gmInfo);
+                console.log('FSH: Base module loaded successfully');
+            }
+        } catch (error) {
+            console.log('FSH: Could not load base module, continuing with enhancements:', error.message);
+        }
+    }
+
+    // ===================================================================
+    // MAIN INITIALIZATION
+    // ===================================================================
+    async function initialize() {
+        console.log('FSH Complete: Initializing all components');
+
+        // Initialize configuration
+        const config = new FSHConfig();
+        
+        // Enable debug logging if debug mode is on
+        if (config.get('debugMode')) {
+            console.log('FSH Debug: Debug mode is enabled');
+            console.log('FSH Debug: Configuration:', config.config);
+        }
+
+        // Load base FSH
+        await loadBaseFSH();
+
+        // Wait a bit for page to stabilize
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Start auto-refresh if enabled
+        config.updateAutoRefresh();
+
+        // Create UI components
+        createStatusIndicator();
+        createGvGPanel();
+        createBuffPanel();
+
+        // Override configuration menu items
+        overrideConfigItems();
+
+        // Make debug functions globally available
+        window.FSHDebug = {
+            showLogs: showDebugLogs,
+            exportData: exportDebugData,
+            clearStorage: clearFSHStorage,
+            config: config
+        };
+
+        console.log('FSH Complete: All components initialized');
+        
+        if (config.get('debugMode')) {
+            console.log('FSH Debug: Debug functions available via window.FSHDebug');
+        }
+    }
+
+    // Start when page is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initialize);
+    } else {
+        initialize();
+    }
+
+})();
